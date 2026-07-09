@@ -57,6 +57,11 @@ fi
 chmod +x "$tmp/muxdeck"
 
 # --- install ---
+# BIN_DIR may not exist (fresh macOS has no /usr/local/bin); install(1) won't create it.
+if [ ! -d "$BIN_DIR" ]; then
+  say "+ creating $BIN_DIR"
+  mkdir -p "$BIN_DIR" 2>/dev/null || sudo mkdir -p "$BIN_DIR"
+fi
 if [ -w "$BIN_DIR" ]; then
   install -m 755 "$tmp/muxdeck" "$BIN_DIR/muxdeck"
 else
