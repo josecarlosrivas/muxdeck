@@ -1,0 +1,155 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #14161a;
+  --bg-panel: #1c1f26;
+  --bg-hover: #262a33;
+  --fg: #d8dee9;
+  --fg-dim: #6b7280;
+  --accent: #5eead4;
+  --danger: #f87171;
+  --border: #2e333d;
+}
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#app { display: flex; height: 100vh; }
+
+#sidebar {
+  width: 230px;
+  min-width: 230px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+#sidebar header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+#sidebar h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); }
+
+#sidebar button {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 15px;
+  cursor: pointer;
+}
+#sidebar button:hover { color: var(--fg); }
+
+#sessions { list-style: none; overflow-y: auto; flex: 1; padding: 6px 0; }
+
+#sessions li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+#sessions li:hover { background: var(--bg-hover); }
+#sessions li.active { background: var(--bg-hover); border-left-color: var(--accent); }
+
+#sessions .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sessions .meta { color: var(--fg-dim); font-size: 11px; }
+#sessions .kill { visibility: hidden; color: var(--fg-dim); }
+#sessions li:hover .kill { visibility: visible; }
+#sessions .kill:hover { color: var(--danger); }
+
+#new-session {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+}
+
+#new-session input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+#new-session input:focus { outline: none; border-color: var(--accent); }
+
+#new-session button {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  width: 30px;
+  cursor: pointer;
+}
+#new-session button:hover { border-color: var(--accent); color: var(--accent); }
+
+#term-wrap { flex: 1; position: relative; background: #000; }
+
+#placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-dim);
+}
+
+#terminal { position: absolute; inset: 0; padding: 4px; }
+
+#login {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 260px;
+}
+
+#login-form h2 { color: var(--accent); text-align: center; font-weight: 600; }
+
+#login-form input {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  padding: 10px;
+}
+#login-form input:focus { outline: none; border-color: var(--accent); }
+
+#login-form button {
+  background: var(--accent);
+  border: none;
+  border-radius: 4px;
+  color: #0b0e11;
+  font-weight: 600;
+  padding: 10px;
+  cursor: pointer;
+}
+
+#login-error { color: var(--danger); text-align: center; font-size: 13px; }
+
+@media (max-width: 640px) {
+  #app { flex-direction: column; }
+  #sidebar { width: 100%; min-width: 0; max-height: 40vh; }
+}

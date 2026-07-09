@@ -1,0 +1,249 @@
+// Package server exposes the muxdeck HTTP API and the PTY<->WebSocket bridge.
+package server
+
+import (
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"io"
+	"io/fs"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+
+	"github.com/creack/pty"
+	"github.com/gorilla/websocket"
+
+	"github.com/josecarlosrivas/muxdeck/internal/tmux"
+)
+
+const tokenCookie = "muxdeck_token"
+
+type Server struct {
+	mux   *http.ServeMux
+	token string
+}
+
+func New(static fs.FS, token string) *Server {
+	s := &Server{mux: http.NewServeMux(), token: token}
+	s.mux.Handle("/", http.FileServerFS(static))
+	s.mux.HandleFunc("POST /api/login", s.handleLogin)
+	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
+	s.mux.HandleFunc("POST /api/sessions", s.auth(s.handleCreate))
+	s.mux.HandleFunc("DELETE /api/sessions/{name}", s.auth(s.handleKill))
+	s.mux.HandleFunc("POST /api/sessions/{name}/rename", s.auth(s.handleRename))
+	s.mux.HandleFunc("GET /api/sessions/{name}/attach", s.auth(s.handleAttach))
+	return s
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
+
+// --- auth ---
+
+func (s *Server) authorized(r *http.Request) bool {
+	if s.token == "" {
+		return true
+	}
+	candidate := ""
+	if c, err := r.Cookie(tokenCookie); err == nil {
+		candidate = c.Value
+	} else if h := r.Header.Get("Authorization"); len(h) > 7 && h[:7] == "Bearer " {
+		candidate = h[7:]
+	}
+	return subtle.ConstantTimeCompare([]byte(candidate), []byte(s.token)) == 1
+}
+
+func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.authorized(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if s.token == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(body.Token), []byte(s.token)) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     tokenCookie,
+		Value:    body.Token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- session CRUD ---
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	if errors.Is(err, tmux.ErrBadName) {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	sessions, err := tmux.List()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sessions)
+}
+
+func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := tmux.New(body.Name); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"name": body.Name})
+}
+
+func (s *Server) handleKill(w http.ResponseWriter, r *http.Request) {
+	if err := tmux.Kill(r.PathValue("name")); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := tmux.Rename(r.PathValue("name"), body.Name); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- attach: PTY <-> WebSocket bridge ---
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
+	// Same-host origin check: a browser terminal is remote code execution
+	// by design, so cross-site WebSocket hijacking must be rejected.
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // non-browser client
+		}
+		u, err := url.Parse(origin)
+		return err == nil && u.Host == r.Host
+	},
+}
+
+type controlMsg struct {
+	Type string `json:"type"`
+	Data string `json:"data"`
+	Cols uint16 `json:"cols"`
+	Rows uint16 `json:"rows"`
+}
+
+func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !tmux.Has(name) {
+		http.Error(w, "no such session", http.StatusNotFound)
+		return
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	// Each websocket gets its own tmux client attached to the session, so
+	// multiple browsers can view the same session just like multiple terminals.
+	cmd := exec.Command("tmux", "attach-session", "-t", "="+name)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		log.Printf("attach %s: pty: %v", name, err)
+		conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","data":"failed to start tmux client"}`))
+		return
+	}
+	defer func() {
+		ptmx.Close()
+		cmd.Process.Kill()
+		cmd.Wait()
+	}()
+
+	// pty -> ws. Closing conn on exit unblocks the read loop below when the
+	// tmux client ends (session killed, server exit).
+	go func() {
+		defer conn.Close()
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := ptmx.Read(buf)
+			if n > 0 {
+				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// ws -> pty
+	for {
+		mt, data, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		if mt != websocket.TextMessage {
+			continue
+		}
+		var msg controlMsg
+		if json.Unmarshal(data, &msg) != nil {
+			continue
+		}
+		switch msg.Type {
+		case "input":
+			io.WriteString(ptmx, msg.Data)
+		case "resize":
+			if msg.Cols > 0 && msg.Rows > 0 {
+				pty.Setsize(ptmx, &pty.Winsize{Cols: msg.Cols, Rows: msg.Rows})
+			}
+		}
+	}
+}
