@@ -133,6 +133,7 @@ body {
   justify-content: center;
   color: var(--fg-dim);
 }
+#placeholder[hidden] { display: none; }
 
 #terminal {
   position: absolute;
@@ -149,6 +150,7 @@ body {
   align-items: center;
   justify-content: center;
 }
+#login[hidden] { display: none; }
 
 #login-form {
   display: flex;
