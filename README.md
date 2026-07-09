@@ -6,6 +6,18 @@ tmux session over WebSocket, plus a small management UI.
 
 Works on any Linux or macOS machine that has `tmux` installed.
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/josecarlosrivas/muxdeck/main/install.sh | sh
+```
+
+The installer detects your platform, checks for tmux, downloads the latest
+release binary, and offers three modes: try it in the foreground, install it
+as a service (systemd/launchd, token-protected, starts at boot), or just put
+the binary on your PATH. Non-interactive use:
+`MUXDECK_MODE=service sh install.sh` (also `MUXDECK_BIN_DIR`, `MUXDECK_PORT`).
+
 ## Build
 
 ```sh
@@ -21,14 +33,27 @@ Prebuilt binaries for linux/darwin × amd64/arm64 are attached to each
 ## Run
 
 ```sh
-./muxdeck                          # http://127.0.0.1:8300, no auth
-./muxdeck -addr 0.0.0.0:8300       # listen on all interfaces
-./muxdeck -addr 0.0.0.0:8300 -token s3cret   # require an access token
+./muxdeck                          # http://127.0.0.1:8300, no auth (loopback)
+./muxdeck -addr 0.0.0.0:8300       # all interfaces — access code auto-generated
+./muxdeck -addr 0.0.0.0:8300 -token s3cret   # fixed token instead
+./muxdeck -addr 0.0.0.0:8300 -no-auth        # explicitly disable auth
 ./muxdeck -tls-cert cert.pem -tls-key key.pem  # serve HTTPS directly
 ```
 
+**Auth is secure by default.** Binding beyond loopback without a `-token`
+generates a 6-character access code, printed at startup:
+
+```
+access code: XK7M2P   (set your own with -token, disable auth with -no-auth)
+```
+
+Enter it on the unlock screen (case-insensitive) — GitHub-device-auth style.
+A new code is generated each start; use `-token` for a stable secret, or
+`-token auto` to force a code even on loopback. Startup also prints the URLs
+the server is reachable at, one per interface on wildcard binds.
+
 Every flag has an env-var default: `MUXDECK_ADDR`, `MUXDECK_TOKEN`,
-`MUXDECK_TLS_CERT`, `MUXDECK_TLS_KEY`.
+`MUXDECK_NO_AUTH`, `MUXDECK_TLS_CERT`, `MUXDECK_TLS_KEY`.
 
 muxdeck talks to the default tmux server of the user it runs as. Sessions
 created and killed in the UI are real tmux sessions — anything you can do in
@@ -96,11 +121,13 @@ tab, including the key bar.
 
 A browser terminal is remote code execution by design. Deploy accordingly:
 
-- **Trusted/private network:** bind to the private interface and rely on
-  network access control. Auth optional.
-- **Anything less trusted:** set `-token` (or `MUXDECK_TOKEN`) and serve over
-  TLS (built-in flags or a proxy). The token gates all `/api` routes; the
-  login form sets an HttpOnly cookie, and non-browser clients can send
+- **Loopback binds** run without auth. **Any other bind** gets a generated
+  access code unless you set `-token` or explicitly pass `-no-auth`.
+- **Trusted/private network:** network access control may be enough — use
+  `-no-auth` if you accept that, or keep the code/token as defense in depth.
+- **Anything less trusted:** use a `-token` and serve over TLS (built-in
+  flags or a proxy). The token gates all `/api` routes; the login form sets
+  an HttpOnly cookie, and non-browser clients can send
   `Authorization: Bearer <token>`.
 - WebSocket upgrades enforce a same-host `Origin` check to block cross-site
   hijacking.

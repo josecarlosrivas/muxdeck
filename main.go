@@ -1,10 +1,14 @@
 package main
 
 import (
+	"crypto/rand"
 	"embed"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
+	"math/big"
+	"net"
 	"net/http"
 	"os"
 
@@ -14,33 +18,127 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// set via -ldflags "-X main.version=..." in releases
+var version = "dev"
+
 func main() {
 	addr := flag.String("addr", envOr("MUXDECK_ADDR", "127.0.0.1:8300"), "listen address")
-	token := flag.String("token", os.Getenv("MUXDECK_TOKEN"), "access token; empty disables auth")
+	tokenFlag := flag.String("token", os.Getenv("MUXDECK_TOKEN"), `access token; "auto" generates a code; empty generates one on non-loopback binds`)
+	noAuth := flag.Bool("no-auth", os.Getenv("MUXDECK_NO_AUTH") != "", "allow unauthenticated access on non-loopback binds")
 	tlsCert := flag.String("tls-cert", os.Getenv("MUXDECK_TLS_CERT"), "TLS certificate file; serve HTTPS when set with -tls-key")
 	tlsKey := flag.String("tls-key", os.Getenv("MUXDECK_TLS_KEY"), "TLS key file")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("muxdeck", version)
+		return
+	}
 
 	static, err := fs.Sub(webFS, "web")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	srv := server.New(static, *token)
+	scheme := "http"
 	if *tlsCert != "" || *tlsKey != "" {
 		if *tlsCert == "" || *tlsKey == "" {
 			log.Fatal("-tls-cert and -tls-key must be set together")
 		}
-		log.Printf("muxdeck listening on https://%s (auth: %v)", *addr, *token != "")
-		if err := http.ListenAndServeTLS(*addr, *tlsCert, *tlsKey, srv); err != nil {
+		scheme = "https"
+	}
+
+	token, generated := resolveToken(*tokenFlag, *addr, *noAuth)
+	srv := server.New(static, token, generated)
+
+	log.Printf("muxdeck %s listening on %s", version, *addr)
+	for _, u := range urls(scheme, *addr) {
+		log.Printf("  → %s", u)
+	}
+	switch {
+	case generated:
+		log.Printf("access code: %s   (set your own with -token, disable auth with -no-auth)", token)
+	case token != "":
+		log.Printf("auth: token required")
+	default:
+		log.Printf("auth: disabled (loopback bind)")
+	}
+
+	if scheme == "https" {
+		err = http.ListenAndServeTLS(*addr, *tlsCert, *tlsKey, srv)
+	} else {
+		err = http.ListenAndServe(*addr, srv)
+	}
+	log.Fatal(err)
+}
+
+// Crockford-style alphabet: no I, L, O, U, 0, 1 to avoid misreading.
+const codeAlphabet = "ABCDEFGHJKMNPQRSTVWXYZ23456789"
+
+func genCode(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(codeAlphabet))))
+		if err != nil {
 			log.Fatal(err)
 		}
-		return
+		b[i] = codeAlphabet[idx.Int64()]
 	}
-	log.Printf("muxdeck listening on http://%s (auth: %v)", *addr, *token != "")
-	if err := http.ListenAndServe(*addr, srv); err != nil {
-		log.Fatal(err)
+	return string(b)
+}
+
+// resolveToken decides the auth material. Explicit tokens win; otherwise a
+// short access code is generated whenever the bind is reachable beyond
+// loopback, unless the operator opts out — secure by default.
+func resolveToken(token, addr string, noAuth bool) (string, bool) {
+	switch {
+	case token == "auto":
+		return genCode(6), true
+	case token != "":
+		return token, false
+	case noAuth || isLoopback(addr):
+		return "", false
+	default:
+		return genCode(6), true
 	}
+}
+
+func isLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// urls lists the addresses a client could plausibly reach this server at,
+// expanding wildcard binds to per-interface URLs.
+func urls(scheme, addr string) []string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return []string{fmt.Sprintf("%s://%s", scheme, addr)}
+	}
+	ip := net.ParseIP(host)
+	if host != "" && (ip == nil || !ip.IsUnspecified()) {
+		return []string{fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(host, port))}
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return []string{fmt.Sprintf("%s://localhost:%s", scheme, port)}
+	}
+	var out []string
+	for _, a := range addrs {
+		ipn, ok := a.(*net.IPNet)
+		if !ok || ipn.IP.To4() == nil || ipn.IP.IsLinkLocalUnicast() {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(ipn.IP.String(), port)))
+	}
+	return out
 }
 
 func envOr(key, def string) string {

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
@@ -28,12 +29,13 @@ func init() {
 }
 
 type Server struct {
-	mux   *http.ServeMux
-	token string
+	mux      *http.ServeMux
+	token    string
+	foldCase bool // generated codes are matched case-insensitively, GitHub-device-auth style
 }
 
-func New(static fs.FS, token string) *Server {
-	s := &Server{mux: http.NewServeMux(), token: token}
+func New(static fs.FS, token string, foldCase bool) *Server {
+	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase}
 	s.mux.Handle("/", http.FileServerFS(static))
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
@@ -57,6 +59,13 @@ func (s *Server) authorized(r *http.Request) bool {
 		candidate = c.Value
 	} else if h := r.Header.Get("Authorization"); len(h) > 7 && h[:7] == "Bearer " {
 		candidate = h[7:]
+	}
+	return s.tokenMatch(candidate)
+}
+
+func (s *Server) tokenMatch(candidate string) bool {
+	if s.foldCase {
+		candidate = strings.ToUpper(candidate)
 	}
 	return subtle.ConstantTimeCompare([]byte(candidate), []byte(s.token)) == 1
 }
@@ -83,13 +92,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(body.Token), []byte(s.token)) != 1 {
+	if !s.tokenMatch(body.Token) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	// Store the canonical token so cookie auth is unaffected by typed case.
 	http.SetCookie(w, &http.Cookie{
 		Name:     tokenCookie,
-		Value:    body.Token,
+		Value:    s.token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
