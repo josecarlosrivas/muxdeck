@@ -69,6 +69,9 @@ composes with whatever infrastructure you already have. Common shapes:
   Environment=MUXDECK_ADDR=0.0.0.0:8300 MUXDECK_TOKEN=changeme
   ExecStart=/usr/local/bin/muxdeck
   Restart=on-failure
+  # Without this, restarting/stopping muxdeck kills the whole cgroup —
+  # including the tmux server it spawned, and every session in it.
+  KillMode=process
 
   [Install]
   WantedBy=default.target
