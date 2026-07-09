@@ -123,6 +123,7 @@ function detach() {
     fitAddon = null;
   }
   activeSession = null;
+  history.replaceState(null, "", location.pathname);
   $("#terminal").hidden = true;
   $("#placeholder").hidden = false;
   $("#placeholder").textContent = "select or create a session";
@@ -137,6 +138,8 @@ function sendResize() {
 function attach(name) {
   detach();
   activeSession = name;
+  // Deep-link: /#name reattaches to the same session on reload/bookmark.
+  history.replaceState(null, "", `#${encodeURIComponent(name)}`);
   $("#placeholder").hidden = true;
   $("#terminal").hidden = false;
 
@@ -247,5 +250,8 @@ if ("serviceWorker" in navigator) {
 }
 initKeybar();
 window.addEventListener("resize", sendResize);
-refreshSessions();
+refreshSessions().then(() => {
+  const target = decodeURIComponent(location.hash.slice(1));
+  if (target) attach(target);
+});
 setInterval(() => { if (!document.hidden) refreshSessions(); }, 10000);

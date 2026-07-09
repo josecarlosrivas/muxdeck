@@ -1,10 +1,22 @@
 # muxdeck
 
 A single-binary web app for creating, managing, and interacting with tmux
-sessions from the browser. Serves a full terminal (xterm.js) attached to any
-tmux session over WebSocket, plus a small management UI.
+sessions from the browser.
 
-Works on any Linux or macOS machine that has `tmux` installed.
+![muxdeck](docs/screenshot.png)
+
+- **Full terminal in the browser** — xterm.js attached to any tmux session
+  over WebSocket; multiple viewers per session, just like multiple `tmux
+  attach` clients
+- **Session management** — create, kill, rename; deep-link to a session with
+  `/#name`
+- **One static binary** — frontend embedded, no runtime dependencies beyond
+  `tmux` itself; Linux and macOS, amd64 and arm64
+- **Installable PWA** — home-screen app on iPad/phone, with a touch key bar
+  (esc / tab / sticky-ctrl / arrows) for what software keyboards lack
+- **Secure by default** — loopback binds are open; anything wider
+  auto-generates an access code unless you configure a token or opt out;
+  optional built-in TLS
 
 ## Install
 
@@ -151,3 +163,26 @@ and `{"type":"resize","cols":N,"rows":N}`; server sends raw terminal output as
 binary frames.
 
 Session names are restricted to `[A-Za-z0-9_-]{1,64}`.
+
+## How it works
+
+muxdeck shells out to the `tmux` CLI of the user it runs as — it holds no
+session state of its own. Each WebSocket attach spawns a real `tmux
+attach-session` client on a PTY and pipes bytes both ways, so everything
+tmux can do (splits, scrollback, copy mode, status line) just works. If you
+start muxdeck from inside a tmux session it manages that same tmux server;
+otherwise the user's default server.
+
+## Development
+
+```sh
+go run .                      # serve with live web/ from the embedded FS
+go run ./tools/genicons web/icons   # regenerate PWA icons (stdlib only)
+```
+
+Plain `go build` produces the deployable binary. CI runs `go vet`, a build,
+and a `gofmt` check on every push and PR.
+
+## License
+
+[MIT](LICENSE)
