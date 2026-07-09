@@ -71,7 +71,8 @@ async function refreshSessions() {
 
     const meta = document.createElement("span");
     meta.className = "meta";
-    meta.textContent = `${s.windows}w${s.attached > 0 ? " ●" : ""}`;
+    meta.textContent = `${s.windows} win${s.windows === 1 ? "" : "s"}${s.attached > 0 ? " ●" : ""}`;
+    li.title = `${s.windows} window${s.windows === 1 ? "" : "s"} · created ${new Date(s.created).toLocaleString()}${s.attached > 0 ? " · attached" : ""}`;
 
     const kill = document.createElement("button");
     kill.className = "kill";
