@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +21,11 @@ import (
 )
 
 const tokenCookie = "muxdeck_token"
+
+func init() {
+	// Not in Go's built-in MIME table; browsers want the real type for PWA installability.
+	mime.AddExtensionType(".webmanifest", "application/manifest+json")
+}
 
 type Server struct {
 	mux   *http.ServeMux

@@ -2,8 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>muxdeck</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="stylesheet" href="vendor/xterm.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -22,8 +29,23 @@
     </form>
   </aside>
   <main id="term-wrap">
-    <div id="placeholder">select or create a session</div>
-    <div id="terminal" hidden></div>
+    <div id="keybar" hidden>
+      <button data-key="&#x1b;">esc</button>
+      <button data-key="&#x9;">tab</button>
+      <button id="key-ctrl">ctrl</button>
+      <button data-key="&#x1b;[A">&#8593;</button>
+      <button data-key="&#x1b;[B">&#8595;</button>
+      <button data-key="&#x1b;[D">&#8592;</button>
+      <button data-key="&#x1b;[C">&#8594;</button>
+      <button data-key="-">-</button>
+      <button data-key="|">|</button>
+      <button data-key="~">~</button>
+      <button data-key="/">/</button>
+    </div>
+    <div id="term-area">
+      <div id="placeholder">select or create a session</div>
+      <div id="terminal" hidden></div>
+    </div>
   </main>
 </div>
 <div id="login" hidden>

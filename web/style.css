@@ -97,7 +97,33 @@ body {
 }
 #new-session button:hover { border-color: var(--accent); color: var(--accent); }
 
-#term-wrap { flex: 1; position: relative; background: #000; }
+#term-wrap { flex: 1; display: flex; flex-direction: column; background: #000; min-width: 0; }
+
+#keybar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+#keybar[hidden] { display: none; }
+
+#keybar button {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg);
+  font: 13px ui-monospace, SF Mono, Menlo, monospace;
+  padding: 7px 12px;
+  min-width: 40px;
+  cursor: pointer;
+  flex-shrink: 0;
+  touch-action: none;
+}
+#keybar button.armed { background: var(--accent); color: #0b0e11; border-color: var(--accent); }
+
+#term-area { flex: 1; position: relative; }
 
 #placeholder {
   position: absolute;
@@ -108,7 +134,12 @@ body {
   color: var(--fg-dim);
 }
 
-#terminal { position: absolute; inset: 0; padding: 4px; }
+#terminal {
+  position: absolute;
+  inset: 0;
+  padding: 4px;
+  padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+}
 
 #login {
   position: fixed;

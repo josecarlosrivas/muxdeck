@@ -174,17 +174,77 @@ function attach(name) {
     refreshSessions();
   };
 
-  term.onData((data) => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "input", data }));
-    }
-  });
+  term.onData((data) => sendInput(applyCtrl(data)));
 
   new ResizeObserver(() => sendResize()).observe($("#term-wrap"));
 }
 
+function sendInput(data) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "input", data }));
+  }
+}
+
+// --- touch keyboard bar ---
+// The iOS/iPadOS software keyboard has no Esc/Tab/Ctrl/arrows; the bar fills
+// the gap. Ctrl is a sticky modifier applied to the next typed character.
+
+let ctrlArmed = false;
+
+function applyCtrl(data) {
+  if (!ctrlArmed || data.length !== 1) return data;
+  const code = data.toUpperCase().charCodeAt(0);
+  if (code >= 64 && code < 96) {
+    setCtrl(false);
+    return String.fromCharCode(code & 0x1f);
+  }
+  if (data === " ") {
+    setCtrl(false);
+    return "\x00";
+  }
+  return data;
+}
+
+function setCtrl(on) {
+  ctrlArmed = on;
+  $("#key-ctrl").classList.toggle("armed", on);
+}
+
+function initKeybar() {
+  if (!matchMedia("(pointer: coarse)").matches) return;
+  const bar = $("#keybar");
+  bar.hidden = false;
+  // pointerdown + preventDefault keeps focus (and the software keyboard) on
+  // the terminal while tapping bar keys.
+  bar.addEventListener("pointerdown", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    e.preventDefault();
+    if (btn.id === "key-ctrl") {
+      setCtrl(!ctrlArmed);
+    } else {
+      sendInput(applyCtrl(btn.dataset.key));
+    }
+  });
+
+  // Shrink the layout to the visual viewport so the terminal is not hidden
+  // behind the software keyboard.
+  if (window.visualViewport) {
+    const vv = window.visualViewport;
+    const adjust = () => {
+      $("#app").style.height = `${vv.height}px`;
+      sendResize();
+    };
+    vv.addEventListener("resize", adjust);
+  }
+}
+
 // --- boot ---
 
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+initKeybar();
 window.addEventListener("resize", sendResize);
 refreshSessions();
 setInterval(() => { if (!document.hidden) refreshSessions(); }, 10000);
