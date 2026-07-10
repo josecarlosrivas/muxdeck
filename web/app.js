@@ -112,6 +112,7 @@ $("#new-session").addEventListener("submit", async (e) => {
 // --- terminal attach ---
 
 function detach() {
+  $("#mouse-toggle").hidden = true;
   if (ws) {
     ws.onclose = null;
     ws.close();
@@ -180,6 +181,8 @@ function attach(name) {
 
   term.onData((data) => sendInput(applyCtrl(data)));
 
+  refreshMouseToggle(name);
+
   new ResizeObserver(() => sendResize()).observe($("#term-wrap"));
 }
 
@@ -188,6 +191,35 @@ function sendInput(data) {
     ws.send(JSON.stringify({ type: "input", data }));
   }
 }
+
+// --- tmux mouse mode toggle ---
+// With mouse mode on, tmux requests mouse tracking, xterm.js forwards wheel/
+// touch scrolling to tmux (copy-mode history), and the page stays put.
+
+async function refreshMouseToggle(name) {
+  try {
+    const { enabled } = await api(`/api/sessions/${encodeURIComponent(name)}/mouse`);
+    const btn = $("#mouse-toggle");
+    btn.hidden = false;
+    btn.classList.toggle("armed", enabled);
+  } catch {}
+}
+
+$("#mouse-toggle").addEventListener("click", async () => {
+  if (!activeSession) return;
+  const btn = $("#mouse-toggle");
+  const want = !btn.classList.contains("armed");
+  try {
+    await api(`/api/sessions/${encodeURIComponent(activeSession)}/mouse`, {
+      method: "POST",
+      body: JSON.stringify({ enabled: want }),
+    });
+    btn.classList.toggle("armed", want);
+    if (term) term.focus();
+  } catch (err) {
+    alert(err.message);
+  }
+});
 
 // --- touch keyboard bar ---
 // The iOS/iPadOS software keyboard has no Esc/Tab/Ctrl/arrows; the bar fills

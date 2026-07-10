@@ -123,7 +123,25 @@ body {
 }
 #keybar button.armed { background: var(--accent); color: #0b0e11; border-color: var(--accent); }
 
-#term-area { flex: 1; position: relative; }
+#term-area { flex: 1; position: relative; overscroll-behavior: none; }
+
+#mouse-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg-dim);
+  font: 12px ui-monospace, SF Mono, Menlo, monospace;
+  padding: 4px 10px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+#mouse-toggle:hover { opacity: 1; color: var(--fg); }
+#mouse-toggle.armed { background: var(--accent); border-color: var(--accent); color: #0b0e11; opacity: 0.9; }
+#mouse-toggle[hidden] { display: none; }
 
 #placeholder {
   position: absolute;

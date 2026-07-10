@@ -42,6 +42,8 @@ func New(static fs.FS, token string, foldCase bool) *Server {
 	s.mux.HandleFunc("POST /api/sessions", s.auth(s.handleCreate))
 	s.mux.HandleFunc("DELETE /api/sessions/{name}", s.auth(s.handleKill))
 	s.mux.HandleFunc("POST /api/sessions/{name}/rename", s.auth(s.handleRename))
+	s.mux.HandleFunc("GET /api/sessions/{name}/mouse", s.auth(s.handleMouseGet))
+	s.mux.HandleFunc("POST /api/sessions/{name}/mouse", s.auth(s.handleMouseSet))
 	s.mux.HandleFunc("GET /api/sessions/{name}/attach", s.auth(s.handleAttach))
 	return s
 }
@@ -164,6 +166,30 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := tmux.Rename(r.PathValue("name"), body.Name); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleMouseGet(w http.ResponseWriter, r *http.Request) {
+	on, err := tmux.Mouse(r.PathValue("name"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"enabled": on})
+}
+
+func (s *Server) handleMouseSet(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := tmux.SetMouse(r.PathValue("name"), body.Enabled); err != nil {
 		writeErr(w, err)
 		return
 	}

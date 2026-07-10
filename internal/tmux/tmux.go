@@ -63,7 +63,46 @@ func New(name string) error {
 	if !ValidName(name) {
 		return ErrBadName
 	}
-	return run("new-session", "-d", "-s", name)
+	if err := run("new-session", "-d", "-s", name); err != nil {
+		return err
+	}
+	// Web-first default: wheel/touch scrolling only reaches tmux (instead of
+	// the browser page) when the application requests mouse tracking.
+	// Option commands reject the "=" exact-match prefix; the session was just
+	// created under this validated name, so a plain target is safe here.
+	return run("set-option", "-t", name, "mouse", "on")
+}
+
+// Mouse reports the effective mouse option for a session (session value,
+// falling back to the global value when unset).
+func Mouse(name string) (bool, error) {
+	if !Has(name) {
+		return false, fmt.Errorf("no such session: %s", name)
+	}
+	out, err := exec.Command("tmux", "show-options", "-t", name, "-v", "mouse").CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("tmux show-options: %s", strings.TrimSpace(string(out)))
+	}
+	v := strings.TrimSpace(string(out))
+	if v == "" {
+		out, err = exec.Command("tmux", "show-options", "-g", "-v", "mouse").CombinedOutput()
+		if err != nil {
+			return false, fmt.Errorf("tmux show-options -g: %s", strings.TrimSpace(string(out)))
+		}
+		v = strings.TrimSpace(string(out))
+	}
+	return v == "on", nil
+}
+
+func SetMouse(name string, on bool) error {
+	if !Has(name) {
+		return fmt.Errorf("no such session: %s", name)
+	}
+	v := "off"
+	if on {
+		v = "on"
+	}
+	return run("set-option", "-t", name, "mouse", v)
 }
 
 func Kill(name string) error {

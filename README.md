@@ -72,6 +72,11 @@ created and killed in the UI are real tmux sessions — anything you can do in
 `tmux attach` works in the browser terminal, including multiple simultaneous
 viewers of one session.
 
+**Scrolling:** browsers only route wheel/touch scrolling into the terminal
+when tmux mouse mode is on, so muxdeck enables `mouse on` for sessions it
+creates, and the in-terminal `mouse` button toggles it per session (it's the
+real tmux option, so it affects terminal clients of that session too).
+
 ## Deployment
 
 muxdeck is a single plain HTTP(S) server with no external dependencies, so it
@@ -156,6 +161,8 @@ token.
 | POST   | `/api/sessions`               | `{"name"}` → create (detached)  |
 | DELETE | `/api/sessions/{name}`        | kill session                    |
 | POST   | `/api/sessions/{name}/rename` | `{"name"}` → rename             |
+| GET    | `/api/sessions/{name}/mouse`  | `{"enabled"}` — tmux mouse mode |
+| POST   | `/api/sessions/{name}/mouse`  | `{"enabled"}` → set mouse mode  |
 | GET    | `/api/sessions/{name}/attach` | WebSocket terminal bridge       |
 
 Attach protocol: client sends JSON text frames `{"type":"input","data":"…"}`
