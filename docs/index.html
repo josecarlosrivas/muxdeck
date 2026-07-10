@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>muxdeck — your tmux sessions, from any browser</title>
+<meta name="description" content="A single-binary web app to create, manage, and interact with tmux sessions from the browser. MIT licensed.">
+<meta property="og:title" content="muxdeck">
+<meta property="og:description" content="Your tmux sessions, from any browser. One static Go binary, full xterm.js terminal, installable PWA, secure by default.">
+<meta property="og:image" content="https://muxdeck.app/screenshot.png">
+<meta property="og:url" content="https://muxdeck.app/">
+<meta name="theme-color" content="#14161a">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #14161a;
+  --panel: #1c1f26;
+  --hover: #262a33;
+  --fg: #d8dee9;
+  --dim: #99a1b3;
+  --accent: #5eead4;
+  --border: #2e333d;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --statusbar-h: 34px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .term-cursor { animation: none !important; }
+}
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.65 var(--sans);
+  padding-bottom: var(--statusbar-h);
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+code, pre, .mono { font-family: var(--mono); }
+.wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+
+/* top bar */
+header.top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 0;
+}
+.wordmark { font: 500 17px var(--mono); color: var(--fg); }
+.wordmark b { color: var(--accent); font-weight: 700; }
+.top nav { display: flex; gap: 22px; font: 14px var(--mono); }
+.top nav a { color: var(--dim); }
+.top nav a:hover { color: var(--fg); text-decoration: none; }
+
+/* hero */
+.hero { padding: 44px 0 22px; }
+.hero h1 {
+  font: 700 clamp(28px, 5.2vw, 46px)/1.15 var(--mono);
+  letter-spacing: -0.02em;
+  max-width: 21ch;
+}
+.hero h1 .accent { color: var(--accent); }
+.hero p.sub {
+  margin: 20px 0 0;
+  max-width: 62ch;
+  color: var(--dim);
+  font-size: 17px;
+}
+.hero p.sub code { color: var(--fg); font-size: 15px; }
+
+/* terminal window */
+.term {
+  margin: 36px 0 12px;
+  background: #0e1013;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 18px 50px -18px rgba(0,0,0,.65);
+}
+.term-title {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font: 12px var(--mono); color: var(--dim);
+}
+.term-title .dots { display: flex; gap: 6px; }
+.term-title .dots i { width: 11px; height: 11px; border-radius: 50%; background: var(--border); }
+.term-body {
+  padding: 18px 16px 20px;
+  font: 13.5px/1.75 var(--mono);
+  min-height: 235px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.term-body .p { color: var(--accent); }
+.term-body .c { color: var(--fg); }
+.term-body .o { color: var(--dim); }
+.term-body .hl { color: var(--accent); font-weight: 700; }
+.term-cursor {
+  display: inline-block; width: 8px; height: 16px;
+  background: var(--accent); vertical-align: -2px;
+  animation: blink 1.1s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.term-note { font: 13px var(--mono); color: var(--dim); text-align: right; }
+
+/* install command pill */
+.cmd {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 26px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 13px 14px;
+  max-width: 640px;
+}
+.cmd code { font-size: 13.5px; color: var(--fg); overflow-x: auto; white-space: nowrap; flex: 1; min-width: 0; scrollbar-width: none; }
+.cmd code::before { content: "$ "; color: var(--accent); }
+.cmd button {
+  font: 12px var(--mono); color: var(--bg);
+  background: var(--accent); border: 0; border-radius: 5px;
+  padding: 6px 12px; cursor: pointer; flex-shrink: 0;
+}
+.cmd button:hover { filter: brightness(1.12); }
+
+/* sections */
+section { padding: 58px 0 6px; }
+.eyebrow {
+  font: 500 13px var(--mono); color: var(--accent);
+  margin-bottom: 14px;
+}
+section h2 { font: 700 26px/1.2 var(--mono); letter-spacing: -0.01em; margin-bottom: 14px; }
+section > .wrap > p { color: var(--dim); max-width: 68ch; }
+
+/* features as panes */
+.panes {
+  margin-top: 30px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+}
+.pane {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 20px 20px 22px;
+}
+.pane h3 { font: 700 15px var(--mono); margin-bottom: 10px; }
+.pane h3::before { content: "▸ "; color: var(--accent); }
+.pane p { font-size: 14.5px; color: var(--dim); }
+.pane p code { font-size: 13px; color: var(--fg); }
+
+/* screenshot */
+.shot {
+  margin-top: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 18px 50px -18px rgba(0,0,0,.65);
+}
+.shot img { display: block; width: 100%; height: auto; }
+
+/* install modes */
+.modes { margin-top: 26px; display: grid; gap: 10px; max-width: 760px; }
+.mode {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 13px 16px;
+  font: 13.5px var(--mono);
+}
+.mode code { color: var(--fg); }
+.mode code::before { content: "$ "; color: var(--accent); }
+.mode span { color: var(--dim); font-size: 12.5px; }
+.accesscode {
+  margin-top: 22px; max-width: 760px;
+  border-left: 3px solid var(--accent);
+  padding: 4px 0 4px 16px;
+  font: 13.5px/1.8 var(--mono); color: var(--dim);
+}
+.accesscode b { color: var(--accent); font-weight: 700; }
+
+/* footer */
+footer {
+  margin-top: 70px;
+  border-top: 1px solid var(--border);
+  padding: 26px 0 40px;
+  font: 13px var(--mono); color: var(--dim);
+  display: flex; flex-wrap: wrap; gap: 8px 26px;
+}
+
+/* tmux status bar */
+.statusbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  height: var(--statusbar-h);
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: stretch;
+  font: 13px var(--mono);
+  overflow-x: auto; scrollbar-width: none;
+}
+.statusbar .sess {
+  display: flex; align-items: center;
+  padding: 0 12px;
+  color: var(--bg); background: var(--accent);
+  font-weight: 700; white-space: nowrap;
+}
+.statusbar .wins { display: flex; align-items: stretch; }
+.statusbar .win {
+  display: flex; align-items: center;
+  padding: 0 12px;
+  color: var(--dim); white-space: nowrap;
+}
+.statusbar .win:hover { background: var(--hover); color: var(--fg); text-decoration: none; }
+.statusbar .win[aria-current="true"] { color: var(--accent); }
+.statusbar .win[aria-current="true"]::after { content: "*"; }
+.statusbar .clock {
+  margin-left: auto;
+  display: flex; align-items: center;
+  padding: 0 14px;
+  color: var(--dim); white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .panes { grid-template-columns: 1fr; }
+  .statusbar .clock { display: none; }
+  .term-body { min-height: 265px; font-size: 12.5px; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <span class="wordmark"><b>mux</b>deck</span>
+    <nav>
+      <a href="https://github.com/josecarlosrivas/muxdeck">github</a>
+      <a href="https://github.com/josecarlosrivas/muxdeck/releases">releases</a>
+    </nav>
+  </header>
+</div>
+
+<main>
+  <section class="hero" id="muxdeck" style="padding-top:24px">
+    <div class="wrap">
+      <h1>Your tmux sessions, <span class="accent">from any browser.</span></h1>
+      <p class="sub">muxdeck is a single Go binary that serves a session manager and a full
+      terminal for the tmux server it runs next to. Every browser tab is a real
+      <code>tmux attach</code> client — splits, scrollback, copy mode, and the status
+      line all just work.</p>
+
+      <div class="cmd">
+        <code id="install-cmd">curl -fsSL https://raw.githubusercontent.com/josecarlosrivas/muxdeck/main/install.sh | sh</code>
+        <button id="copy-btn" aria-label="Copy install command">copy</button>
+      </div>
+
+      <div class="term" aria-hidden="true">
+        <div class="term-title">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <span>muxdeck — install</span>
+        </div>
+        <div class="term-body" id="term-demo"></div>
+      </div>
+      <p class="term-note">no accounts · no telemetry · MIT</p>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <p class="eyebrow">1:features</p>
+      <h2>Everything tmux gives you, nothing it doesn't</h2>
+      <div class="panes">
+        <div class="pane">
+          <h3>Full terminal in the browser</h3>
+          <p>xterm.js attached over WebSocket. Multiple viewers of one session behave
+          exactly like multiple <code>tmux attach</code> clients — watch a deploy from
+          your laptop and your phone at once.</p>
+        </div>
+        <div class="pane">
+          <h3>One static binary</h3>
+          <p>The frontend — xterm.js included — is embedded in the binary. The only
+          runtime dependency is <code>tmux</code> itself. Linux and macOS, amd64 and
+          arm64.</p>
+        </div>
+        <div class="pane">
+          <h3>Installable PWA</h3>
+          <p>Add it to the home screen on an iPad or phone. A touch key bar covers what
+          software keyboards lack: esc, tab, arrows, and a sticky ctrl — so
+          <code>ctrl-b</code> works everywhere.</p>
+        </div>
+        <div class="pane">
+          <h3>Sessions that survive</h3>
+          <p>Create, kill, rename, deep-link with <code>/#name</code>. Sessions live in
+          the tmux server, not in muxdeck — restart muxdeck and everything is still
+          running.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="demo">
+    <div class="wrap">
+      <p class="eyebrow">2:demo</p>
+      <h2>The actual UI</h2>
+      <p>Session list on the left, live terminal on the right. What you see is the
+      whole app — there is nothing else to configure.</p>
+      <div class="shot">
+        <img src="/screenshot.png" alt="muxdeck in a browser: a sidebar listing tmux sessions and a full terminal attached to one of them" width="1100" height="650" loading="lazy">
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <p class="eyebrow">3:install</p>
+      <h2>Run it your way</h2>
+      <p>The installer detects your platform, checks for tmux, and offers to set up a
+      systemd or launchd service. Or grab a <a href="https://github.com/josecarlosrivas/muxdeck/releases">release binary</a>
+      and run it directly:</p>
+      <div class="modes">
+        <div class="mode"><code>./muxdeck</code><span>loopback, no auth — try it</span></div>
+        <div class="mode"><code>./muxdeck -addr 0.0.0.0:8300</code><span>LAN — access code auto-generated</span></div>
+        <div class="mode"><code>./muxdeck -addr 0.0.0.0:8300 -token s3cret</code><span>fixed token</span></div>
+        <div class="mode"><code>./muxdeck -tls-cert cert.pem -tls-key key.pem</code><span>built-in TLS, no proxy needed</span></div>
+      </div>
+      <p class="accesscode">A browser terminal is remote code execution by design, so auth is on by
+      default: bind beyond loopback without a token and muxdeck prints
+      <b>access code: XK7M2P</b> at startup. Opting out is explicit
+      (<b>-no-auth</b>), never accidental.</p>
+    </div>
+  </section>
+</main>
+
+<div class="wrap">
+  <footer>
+    <span>MIT licensed</span>
+    <a href="https://github.com/josecarlosrivas/muxdeck">source on GitHub</a>
+    <a href="https://github.com/josecarlosrivas/muxdeck/issues">issues welcome</a>
+  </footer>
+</div>
+
+<nav class="statusbar" aria-label="Sections">
+  <span class="sess">[muxdeck]</span>
+  <div class="wins">
+    <a class="win" href="#muxdeck" data-w="muxdeck">0:muxdeck</a>
+    <a class="win" href="#features" data-w="features">1:features</a>
+    <a class="win" href="#demo" data-w="demo">2:demo</a>
+    <a class="win" href="#install" data-w="install">3:install</a>
+  </div>
+  <span class="clock" id="clock"></span>
+</nav>
+
+<script>
+// copy button
+document.getElementById('copy-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('copy-btn');
+  try {
+    await navigator.clipboard.writeText(document.getElementById('install-cmd').textContent);
+    btn.textContent = 'copied';
+    setTimeout(() => { btn.textContent = 'copy'; }, 1600);
+  } catch { btn.textContent = 'copy'; }
+});
+
+// tmux-style clock
+function tick() {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  document.getElementById('clock').textContent =
+    d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + hh + ':' + mm;
+}
+tick(); setInterval(tick, 30000);
+
+// scrollspy for the status bar window list
+const wins = [...document.querySelectorAll('.statusbar .win')];
+const sections = wins.map(w => document.getElementById(w.dataset.w));
+const spy = new IntersectionObserver(entries => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    wins.forEach(w => w.setAttribute('aria-current', w.dataset.w === e.target.id ? 'true' : 'false'));
+  }
+}, { rootMargin: '-40% 0px -55% 0px' });
+sections.forEach(s => spy.observe(s));
+
+// hero terminal: typed install demo
+const LINES = [
+  { t: 'cmd',  text: 'curl -fsSL https://raw.githubusercontent.com/josecarlosrivas/muxdeck/main/install.sh | sh' },
+  { t: 'out',  text: 'detected darwin/arm64 · tmux 3.5a found' },
+  { t: 'out',  text: 'downloading muxdeck v0.3.2 … done' },
+  { t: 'out',  text: 'installed to /usr/local/bin/muxdeck' },
+  { t: 'cmd',  text: 'muxdeck -addr 0.0.0.0:8300' },
+  { t: 'out',  text: 'serving http://0.0.0.0:8300 · 3 sessions' },
+  { t: 'hl',   text: 'access code: XK7M2P' },
+];
+const term = document.getElementById('term-demo');
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function renderFull() {
+  term.innerHTML = LINES.map(l =>
+    l.t === 'cmd' ? '<span class="p">$ </span><span class="c">' + l.text + '</span>'
+                  : '<span class="' + (l.t === 'hl' ? 'hl' : 'o') + '">' + l.text + '</span>'
+  ).join('\n') + '\n<span class="p">$ </span><span class="term-cursor"></span>';
+}
+
+async function play() {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  let html = '';
+  const cursor = '<span class="term-cursor"></span>';
+  for (const l of LINES) {
+    if (l.t === 'cmd') {
+      html += '<span class="p">$ </span>';
+      for (let i = 1; i <= l.text.length; i++) {
+        term.innerHTML = html + '<span class="c">' + l.text.slice(0, i) + '</span>' + cursor;
+        await sleep(l.text.length > 60 ? 11 : 26);
+      }
+      html += '<span class="c">' + l.text + '</span>\n';
+      term.innerHTML = html + cursor;
+      await sleep(420);
+    } else {
+      html += '<span class="' + (l.t === 'hl' ? 'hl' : 'o') + '">' + l.text + '</span>\n';
+      term.innerHTML = html + cursor;
+      await sleep(l.t === 'hl' ? 600 : 330);
+    }
+  }
+  term.innerHTML = html + '<span class="p">$ </span>' + cursor;
+}
+
+if (reduced) renderFull();
+else {
+  const once = new IntersectionObserver(es => {
+    if (es.some(e => e.isIntersecting)) { once.disconnect(); play(); }
+  });
+  once.observe(term);
+}
+</script>
+</body>
+</html>
