@@ -21,6 +21,7 @@ type Session struct {
 	Windows  int       `json:"windows"`
 	Created  time.Time `json:"created"`
 	Attached int       `json:"attached"`
+	Activity int64     `json:"activity"`
 }
 
 func ValidName(name string) bool { return nameRe.MatchString(name) }
@@ -37,7 +38,7 @@ func run(args ...string) error {
 // (tmux not started yet) is reported as an empty list, not an error.
 func List() ([]Session, error) {
 	out, err := exec.Command("tmux", "list-sessions", "-F",
-		"#{session_name}\t#{session_windows}\t#{session_created}\t#{session_attached}").CombinedOutput()
+		"#{session_name}\t#{session_windows}\t#{session_created}\t#{session_attached}\t#{session_activity}").CombinedOutput()
 	if err != nil {
 		msg := string(out)
 		if strings.Contains(msg, "no server running") || strings.Contains(msg, "error connecting to") {
@@ -48,15 +49,31 @@ func List() ([]Session, error) {
 	sessions := []Session{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		f := strings.Split(line, "\t")
-		if len(f) != 4 {
+		if len(f) != 5 {
 			continue
 		}
 		windows, _ := strconv.Atoi(f[1])
 		created, _ := strconv.ParseInt(f[2], 10, 64)
 		attached, _ := strconv.Atoi(f[3])
-		sessions = append(sessions, Session{Name: f[0], Windows: windows, Created: time.Unix(created, 0), Attached: attached})
+		activity, _ := strconv.ParseInt(f[4], 10, 64)
+		sessions = append(sessions, Session{Name: f[0], Windows: windows, Created: time.Unix(created, 0), Attached: attached, Activity: activity})
 	}
 	return sessions, nil
+}
+
+// EnsureClipboard makes tmux forward copy-mode yanks to the attached client
+// as OSC 52, which the web frontend turns into a browser clipboard write.
+// set-clipboard only takes effect when the outer terminal advertises the Ms
+// capability, which xterm-256color terminfo does not — hence the override.
+func EnsureClipboard() error {
+	if err := run("set-option", "-s", "set-clipboard", "on"); err != nil {
+		return err
+	}
+	out, err := exec.Command("tmux", "show-options", "-s", "-v", "terminal-overrides").CombinedOutput()
+	if err == nil && strings.Contains(string(out), "Ms=") {
+		return nil
+	}
+	return run("set-option", "-s", "-a", "terminal-overrides", `,xterm*:Ms=\E]52;%p1%s;%p2%s\007`)
 }
 
 func New(name string) error {

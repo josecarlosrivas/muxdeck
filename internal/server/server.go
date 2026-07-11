@@ -226,6 +226,9 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such session", http.StatusNotFound)
 		return
 	}
+	if err := tmux.EnsureClipboard(); err != nil {
+		log.Printf("attach %s: clipboard setup: %v", name, err)
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
