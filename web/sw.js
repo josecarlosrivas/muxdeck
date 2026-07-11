@@ -1,7 +1,7 @@
 // Minimal service worker: makes muxdeck installable as a PWA and keeps the
 // shell loadable. Network-first so deploys are never masked by stale caches;
 // the app is useless offline anyway (it needs a live WebSocket).
-const CACHE = "muxdeck-v1";
+const CACHE = "muxdeck-v2";
 const ASSETS = [
   "/",
   "/style.css",
@@ -10,6 +10,8 @@ const ASSETS = [
   "/vendor/xterm.js",
   "/vendor/xterm.css",
   "/vendor/addon-fit.js",
+  "/vendor/addon-search.js",
+  "/vendor/addon-web-links.js",
 ];
 
 self.addEventListener("install", (e) => {

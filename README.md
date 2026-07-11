@@ -8,12 +8,21 @@ sessions from the browser.
 - **Full terminal in the browser** — xterm.js attached to any tmux session
   over WebSocket; multiple viewers per session, just like multiple `tmux
   attach` clients
-- **Session management** — create, kill, rename; deep-link to a session with
-  `/#name`
+- **Split view** — two sessions side by side on wide screens; the deep-link
+  hash carries both (`/#build,logs`)
+- **Session management** — create, kill, rename, drag to reorder, unseen-output
+  dots, and a fuzzy quick-switcher (`⌘K` / `Ctrl+Shift+K`)
+- **Clipboard that works** — selection copies on release, tmux copy-mode
+  yanks land on the system clipboard via OSC 52, and touch devices get a
+  paste key; URLs in output are clickable
+- **Resilient connections** — dropped WebSockets reconnect automatically
+  with backoff (phones background tabs constantly; muxdeck just comes back)
+- **Scrollback search** — find in the current session (`⌘F` /
+  `Ctrl+Shift+F`), plus adjustable font size
 - **One static binary** — frontend embedded, no runtime dependencies beyond
   `tmux` itself; Linux and macOS, amd64 and arm64
 - **Installable PWA** — home-screen app on iPad/phone, with a touch key bar
-  (esc / tab / sticky-ctrl / arrows) for what software keyboards lack
+  (esc / tab / sticky-ctrl / arrows / paste) for what software keyboards lack
 - **Secure by default** — loopback binds are open; anything wider
   auto-generates an access code unless you configure a token or opt out;
   optional built-in TLS
@@ -74,8 +83,20 @@ viewers of one session.
 
 **Scrolling:** browsers only route wheel/touch scrolling into the terminal
 when tmux mouse mode is on, so muxdeck enables `mouse on` for sessions it
-creates, and the in-terminal `mouse` button toggles it per session (it's the
+creates, and the per-pane `mouse` button toggles it per session (it's the
 real tmux option, so it affects terminal clients of that session too).
+
+**Copy/paste:** selecting text copies it to the clipboard on release (with
+mouse mode on, hold Shift — Option on macOS — to select in the browser
+instead of tmux). tmux copy-mode yanks reach the system clipboard too:
+muxdeck sets the server's `set-clipboard` option and the `Ms` terminfo
+override, and the frontend turns the resulting OSC 52 writes into browser
+clipboard writes. Paste with `⌘V`/`Ctrl+V`, or the `paste` key on touch
+devices. Clipboard access needs a secure context (HTTPS or localhost).
+
+**Keyboard shortcuts:** `⌘K` (`Ctrl+Shift+K`) fuzzy session switcher,
+`⌘F` (`Ctrl+Shift+F`) find in scrollback. Plain Ctrl combos always go to
+the terminal.
 
 ## Deployment
 

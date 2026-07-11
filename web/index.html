@@ -19,7 +19,10 @@
   <aside id="sidebar">
     <header>
       <h1>muxdeck</h1>
-      <button id="refresh" title="Refresh sessions">&#10227;</button>
+      <span class="hdr-tools">
+        <button id="split" title="split view (side by side)">&#9707;</button>
+        <button id="refresh" title="Refresh sessions">&#10227;</button>
+      </span>
     </header>
     <ul id="sessions"></ul>
     <form id="new-session">
@@ -37,17 +40,20 @@
       <button data-key="&#x1b;[B">&#8595;</button>
       <button data-key="&#x1b;[D">&#8592;</button>
       <button data-key="&#x1b;[C">&#8594;</button>
+      <button id="key-paste">paste</button>
       <button data-key="-">-</button>
       <button data-key="|">|</button>
       <button data-key="~">~</button>
       <button data-key="/">/</button>
     </div>
-    <div id="term-area">
-      <div id="placeholder">select or create a session</div>
-      <div id="terminal" hidden></div>
-      <button id="mouse-toggle" hidden title="tmux mouse mode: wheel/touch scrolls the session instead of the page">mouse</button>
-    </div>
+    <div id="panes"></div>
   </main>
+</div>
+<div id="switcher" hidden>
+  <div class="sw-box">
+    <input placeholder="switch session&hellip;" spellcheck="false" autocomplete="off">
+    <ul></ul>
+  </div>
 </div>
 <div id="login" hidden>
   <form id="login-form">
@@ -59,6 +65,8 @@
 </div>
 <script src="vendor/xterm.js"></script>
 <script src="vendor/addon-fit.js"></script>
+<script src="vendor/addon-search.js"></script>
+<script src="vendor/addon-web-links.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
