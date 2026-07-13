@@ -36,9 +36,14 @@ func run(args ...string) error {
 
 // List returns all sessions on the default tmux server. A missing server
 // (tmux not started yet) is reported as an empty list, not an error.
+//
+// The format uses "|" separators, numeric fields first and the free-text name
+// last (split with a count, so a "|" inside a session name stays in the name).
+// TAB is not safe here: tmux ≥3.6 sanitizes control characters to "_" when the
+// client runs outside tmux — exactly the daemon case.
 func List() ([]Session, error) {
 	out, err := exec.Command("tmux", "list-sessions", "-F",
-		"#{session_name}\t#{session_windows}\t#{session_created}\t#{session_attached}\t#{session_activity}").CombinedOutput()
+		"#{session_windows}|#{session_created}|#{session_attached}|#{session_activity}|#{session_name}").CombinedOutput()
 	if err != nil {
 		msg := string(out)
 		if strings.Contains(msg, "no server running") || strings.Contains(msg, "error connecting to") {
@@ -48,15 +53,15 @@ func List() ([]Session, error) {
 	}
 	sessions := []Session{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		f := strings.Split(line, "\t")
+		f := strings.SplitN(line, "|", 5)
 		if len(f) != 5 {
 			continue
 		}
-		windows, _ := strconv.Atoi(f[1])
-		created, _ := strconv.ParseInt(f[2], 10, 64)
-		attached, _ := strconv.Atoi(f[3])
-		activity, _ := strconv.ParseInt(f[4], 10, 64)
-		sessions = append(sessions, Session{Name: f[0], Windows: windows, Created: time.Unix(created, 0), Attached: attached, Activity: activity})
+		windows, _ := strconv.Atoi(f[0])
+		created, _ := strconv.ParseInt(f[1], 10, 64)
+		attached, _ := strconv.Atoi(f[2])
+		activity, _ := strconv.ParseInt(f[3], 10, 64)
+		sessions = append(sessions, Session{Name: f[4], Windows: windows, Created: time.Unix(created, 0), Attached: attached, Activity: activity})
 	}
 	return sessions, nil
 }
