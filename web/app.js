@@ -410,6 +410,20 @@ function attachFromHash() {
 
 let lastSessions = [];
 const seenActivity = new Map(); // name -> last activity we consider seen
+const agentStates = new Map(); // name -> last agent state, for waiting-transition alerts
+
+function notifyAgentWaiting(s) {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  const n = new Notification(`${s.name}: agent needs input`, {
+    body: s.agent.note || `${s.agent.agent} is waiting for you`,
+    tag: `muxdeck-agent-${s.name}`, // collapse repeats for the same session
+  });
+  n.onclick = () => {
+    window.focus();
+    paneFor().attach(s.name);
+    n.close();
+  };
+}
 
 function orderedSessions() {
   const idx = new Map(order.map((n, i) => [n, i]));
@@ -430,6 +444,20 @@ async function refreshSessions() {
   for (const s of sessions) {
     // Viewing a session counts as seeing its output; new sessions start seen.
     if (attached.has(s.name) || !seenActivity.has(s.name)) seenActivity.set(s.name, s.activity);
+
+    // Alert on the transition into waiting, not while it persists — and not
+    // when the session is already on screen in a visible tab.
+    const state = s.agent?.state;
+    if (
+      state === "waiting" &&
+      agentStates.get(s.name) !== "waiting" &&
+      agentStates.has(s.name) &&
+      (document.hidden || !attached.has(s.name))
+    ) {
+      notifyAgentWaiting(s);
+    }
+    if (state) agentStates.set(s.name, state);
+    else agentStates.delete(s.name);
   }
 
   const ul = $("#sessions");
@@ -453,6 +481,18 @@ async function refreshSessions() {
       dot.className = "dot";
       dot.title = "new output";
       name.append(" ", dot);
+    }
+
+    if (s.agent) {
+      const badge = document.createElement("span");
+      badge.className = `agent agent-${s.agent.state}`;
+      const icon = { working: "◐", waiting: "✋", idle: "○" }[s.agent.state] || "?";
+      const cost = s.agent.cost_usd ? ` · $${s.agent.cost_usd.toFixed(2)}` : "";
+      badge.textContent = `${icon} ${s.agent.model || s.agent.agent}${cost}`;
+      badge.title = `${s.agent.agent} is ${s.agent.state}` +
+        (s.agent.note ? ` — ${s.agent.note}` : "") +
+        ` · updated ${new Date(s.agent.updated_at).toLocaleTimeString()}`;
+      name.append(" ", badge);
     }
 
     const meta = document.createElement("span");
@@ -541,6 +581,20 @@ async function renameSession(oldName) {
 }
 
 $("#refresh").addEventListener("click", refreshSessions);
+
+// Notification opt-in. Shown only where the page Notification API exists
+// (not iOS Safari — that needs Web Push, which muxdeck doesn't do yet).
+if (typeof Notification !== "undefined") {
+  const btn = $("#notify");
+  btn.hidden = false;
+  const paint = () => btn.classList.toggle("armed", Notification.permission === "granted");
+  paint();
+  btn.addEventListener("click", async () => {
+    if (Notification.permission === "default") await Notification.requestPermission();
+    else if (Notification.permission === "denied") alert("Notifications are blocked for this site — enable them in browser settings.");
+    paint();
+  });
+}
 
 $("#new-session").addEventListener("submit", async (e) => {
   e.preventDefault();
