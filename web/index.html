@@ -50,10 +50,17 @@
     <div id="panes"></div>
   </main>
 </div>
-<div id="switcher" hidden>
-  <div class="sw-box">
-    <input placeholder="switch session&hellip;" spellcheck="false" autocomplete="off">
-    <ul></ul>
+<div id="palette" hidden>
+  <div class="pal-box">
+    <div class="pal-prompt">
+      <span class="pal-mode">&#10095;</span>
+      <span class="pal-field">
+        <input id="pal-input" spellcheck="false" autocomplete="off" autocapitalize="off">
+        <span class="pal-caret">&nbsp;</span>
+      </span>
+    </div>
+    <ul class="pal-list"></ul>
+    <footer class="pal-hint"></footer>
   </div>
 </div>
 <div id="login" hidden>

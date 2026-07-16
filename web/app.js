@@ -100,7 +100,7 @@ function chord(e, key) {
 document.addEventListener("keydown", (e) => {
   if (chord(e, "k")) {
     e.preventDefault();
-    $("#switcher").hidden ? openSwitcher() : closeSwitcher();
+    $("#palette").hidden ? openPalette("switch") : closePalette();
   } else if (chord(e, "f") && paneFor()?.term) {
     e.preventDefault();
     paneFor().toggleFind(true);
@@ -557,16 +557,14 @@ async function refreshSessions() {
     kill.addEventListener("click", async (e) => {
       e.stopPropagation();
       if (!confirm(`Kill session "${s.name}"?`)) return;
-      try { await api(`/api/sessions/${encodeURIComponent(s.name)}`, { method: "DELETE" }); }
-      catch (err) { alert(err.message); }
-      for (const p of panes) if (p.session === s.name) p.detach();
-      refreshSessions();
+      await killSession(s.name);
     });
 
     li.append(grip, name, meta, rename, kill);
     li.addEventListener("click", () => paneFor().attach(s.name));
     ul.appendChild(li);
   }
+  if (!$("#palette").hidden) renderPalette();
 }
 
 function initDrag(li, grip) {
@@ -593,8 +591,8 @@ function initDrag(li, grip) {
   });
 }
 
-async function renameSession(oldName) {
-  const name = prompt("rename session", oldName);
+async function renameSession(oldName, name = null) {
+  name = name ?? prompt("rename session", oldName);
   if (!name || name === oldName) return;
   try {
     await api(`/api/sessions/${encodeURIComponent(oldName)}/rename`, {
@@ -657,9 +655,26 @@ $("#new-session").addEventListener("submit", async (e) => {
   }
 });
 
-// --- quick switcher ---
+// --- command palette ---
+// One overlay, several modes. "switch" is the spotlight default: fuzzy
+// session matching, ":" for commands, and a create fallback when nothing
+// matches. Sub-modes chain like shell prompts: :rename → pick → type new
+// name, :kill → pick → y/N.
 
-let swIndex = 0;
+let pal = { mode: "switch", verb: null, arg: null, index: 0 };
+
+const VALID_NAME = /^[A-Za-z0-9_-]+$/;
+
+const PAL_COMMANDS = [
+  { name: ":new",     hint: "create session",         run: () => setPalMode("new") },
+  { name: ":rename",  hint: "rename session",         run: () => setPalMode("pick", "rename") },
+  { name: ":kill",    hint: "kill session",           run: () => setPalMode("pick", "kill") },
+  { name: ":split",   hint: "toggle split view",      run: () => { closePalette(); $("#split").click(); } },
+  { name: ":mouse",   hint: "toggle tmux mouse mode", run: () => { closePalette(); paneFor()?.toggleMouse(); } },
+  { name: ":font +",  hint: "bigger text",  keep: true, run: () => setFontSize(fontSize + 1) },
+  { name: ":font -",  hint: "smaller text", keep: true, run: () => setFontSize(fontSize - 1) },
+  { name: ":refresh", hint: "refresh sessions",       run: () => { closePalette(); refreshSessions(); } },
+];
 
 function fuzzy(q) {
   q = q.toLowerCase();
@@ -670,54 +685,168 @@ function fuzzy(q) {
   };
 }
 
-function switcherMatches() {
-  return orderedSessions().map((s) => s.name).filter(fuzzy($("#switcher input").value));
+function palItems() {
+  const q = $("#pal-input").value.trim();
+  if (pal.mode === "pick")
+    return orderedSessions().filter((s) => fuzzy(q)(s.name))
+      .map((s) => ({ kind: "session", name: s.name, s }));
+  if (pal.mode !== "switch") return [];
+  if (q.startsWith(":"))
+    return PAL_COMMANDS.filter((c) => c.name.startsWith(q)).map((c) => ({ kind: "command", ...c }));
+  const items = orderedSessions().filter((s) => fuzzy(q)(s.name))
+    .map((s) => ({ kind: "session", name: s.name, s }));
+  if (q && VALID_NAME.test(q) && !lastSessions.some((s) => s.name === q))
+    items.push({ kind: "create", name: q });
+  return items;
 }
 
-function renderSwitcher() {
-  const ul = $("#switcher ul");
-  const names = switcherMatches();
-  swIndex = Math.max(0, Math.min(swIndex, names.length - 1));
+function renderPalette() {
+  const ul = $(".pal-list");
+  const items = palItems();
+  pal.index = Math.max(0, Math.min(pal.index, items.length - 1));
   ul.innerHTML = "";
-  names.forEach((n, i) => {
+  items.forEach((it, i) => {
     const li = document.createElement("li");
-    li.textContent = n;
-    li.classList.toggle("selected", i === swIndex);
-    li.addEventListener("click", () => pickSession(n));
+    li.classList.toggle("selected", i === pal.index);
+    const label = document.createElement("span");
+    const right = document.createElement("span");
+    right.className = "dim";
+    if (it.kind === "session") {
+      label.textContent = it.name;
+      right.textContent = `${it.s.windows}w${it.s.attached > 0 ? " ●" : ""}`;
+      if (it.s.agent) right.textContent += ` · ${{ working: "◐", waiting: "✋", idle: "○" }[it.s.agent.state] || ""}`;
+    } else if (it.kind === "command") {
+      label.textContent = it.name;
+      label.className = "cmd";
+      right.textContent = it.hint;
+    } else {
+      label.textContent = `+ create "${it.name}"`;
+      label.className = "cmd";
+      right.textContent = "new session";
+    }
+    li.append(label, right);
+    li.addEventListener("click", () => palActivate(it));
     ul.appendChild(li);
   });
+  updateCaret();
 }
 
-function openSwitcher() {
-  swIndex = 0;
-  $("#switcher").hidden = false;
-  const inp = $("#switcher input");
-  inp.value = "";
-  renderSwitcher();
-  inp.focus();
+async function palActivate(it) {
+  if (it.kind === "session") {
+    if (pal.mode === "pick" && pal.verb === "rename") return setPalMode("input", "rename", it.name);
+    if (pal.mode === "pick" && pal.verb === "kill") return setPalMode("confirm", "kill", it.name);
+    closePalette();
+    paneFor().attach(it.name);
+  } else if (it.kind === "command") {
+    it.run();
+    if (it.keep) renderPalette();
+  } else {
+    await createSession(it.name);
+  }
 }
 
-function closeSwitcher() {
-  $("#switcher").hidden = true;
-  paneFor()?.term?.focus();
-}
-
-function pickSession(name) {
-  closeSwitcher();
+async function createSession(name) {
+  try {
+    await api("/api/sessions", { method: "POST", body: JSON.stringify({ name }) });
+  } catch (err) { alert(err.message); return; }
+  closePalette();
+  await refreshSessions();
   paneFor().attach(name);
 }
 
-$("#switcher").addEventListener("click", (e) => {
-  if (e.target === $("#switcher")) closeSwitcher();
+async function killSession(name) {
+  try { await api(`/api/sessions/${encodeURIComponent(name)}`, { method: "DELETE" }); }
+  catch (err) { alert(err.message); }
+  for (const p of panes) if (p.session === name) p.detach();
+  refreshSessions();
+}
+
+const PAL_MODES = {
+  switch:  { prompt: "❯", ph: "session or :command", hint: "↑↓ move · ⏎ open · : commands · esc close" },
+  new:     { prompt: "new ❯", ph: "enter session name", hint: "⏎ create · esc back" },
+  pick:    { prompt: null, ph: "which session?", hint: "↑↓ move · ⏎ select · esc back" },
+  input:   { prompt: null, ph: "new name", hint: "⏎ rename · esc back" },
+  confirm: { prompt: null, ph: "", hint: "y kill · n / esc back" },
+};
+
+function setPalMode(mode, verb = null, arg = null) {
+  pal = { mode, verb, arg, index: 0 };
+  const m = PAL_MODES[mode];
+  const inp = $("#pal-input");
+  inp.value = mode === "input" ? arg : "";
+  $(".pal-mode").textContent =
+    mode === "pick" ? `:${verb} ❯` :
+    mode === "input" ? `:${verb} ${arg} ❯` :
+    mode === "confirm" ? `:${verb} ${arg}? [y/N]` : m.prompt;
+  inp.placeholder = m.ph && " " + m.ph; // leading space: the block caret sits on col 0
+  inp.readOnly = mode === "confirm";
+  $(".pal-hint").textContent = m.hint;
+  renderPalette();
+  inp.focus();
+  if (mode === "input") inp.setSelectionRange(0, inp.value.length);
+}
+
+function openPalette(mode) {
+  $("#palette").hidden = false;
+  setPalMode(mode);
+}
+
+function closePalette() {
+  $("#palette").hidden = true;
+  paneFor()?.term?.focus();
+}
+
+function palBack() {
+  if (pal.mode === "switch") closePalette();
+  else setPalMode("switch");
+}
+
+function updateCaret() {
+  const inp = $("#pal-input");
+  const caret = $(".pal-caret");
+  caret.hidden = pal.mode === "confirm" || document.activeElement !== inp;
+  const pos = inp.selectionStart ?? inp.value.length;
+  caret.style.left = `${pos}ch`;
+  caret.textContent = inp.value[pos] || " ";
+}
+
+$("#palette").addEventListener("click", (e) => {
+  if (e.target === $("#palette")) closePalette();
 });
 
-$("#switcher input").addEventListener("input", () => renderSwitcher());
-$("#switcher input").addEventListener("keydown", (e) => {
-  const names = switcherMatches();
-  if (e.key === "Escape") closeSwitcher();
-  else if (e.key === "ArrowDown") { e.preventDefault(); swIndex++; renderSwitcher(); }
-  else if (e.key === "ArrowUp") { e.preventDefault(); swIndex--; renderSwitcher(); }
-  else if (e.key === "Enter" && names[swIndex]) pickSession(names[swIndex]);
+$("#pal-input").addEventListener("input", () => {
+  pal.index = 0;
+  renderPalette();
+});
+$("#pal-input").addEventListener("focus", updateCaret);
+$("#pal-input").addEventListener("blur", updateCaret);
+document.addEventListener("selectionchange", () => {
+  if (!$("#palette").hidden) updateCaret();
+});
+
+$("#pal-input").addEventListener("keydown", async (e) => {
+  if (e.key === "Escape") { e.preventDefault(); palBack(); return; }
+  if (pal.mode === "confirm") {
+    e.preventDefault();
+    if (e.key.toLowerCase() === "y") { const name = pal.arg; closePalette(); await killSession(name); }
+    else if (e.key === "Enter" || e.key.toLowerCase() === "n") palBack();
+    return;
+  }
+  const items = palItems();
+  if (e.key === "ArrowDown" || e.key === "Tab" && !e.shiftKey || e.ctrlKey && e.key === "n") {
+    e.preventDefault(); pal.index++; renderPalette();
+  } else if (e.key === "ArrowUp" || e.key === "Tab" && e.shiftKey || e.ctrlKey && e.key === "p") {
+    e.preventDefault(); pal.index--; renderPalette();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    const name = $("#pal-input").value.trim();
+    if (pal.mode === "new") { if (VALID_NAME.test(name)) await createSession(name); }
+    else if (pal.mode === "input") {
+      if (VALID_NAME.test(name)) { closePalette(); await renameSession(pal.arg, name); }
+    } else if (items[pal.index]) await palActivate(items[pal.index]);
+  } else if (e.key === "Backspace" && !$("#pal-input").value && pal.mode !== "switch") {
+    e.preventDefault(); palBack();
+  }
 });
 
 // --- font size ---
