@@ -129,6 +129,12 @@ func writeErr(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	if !tmux.Found {
+		// A machine state, not a request error — the UI turns this into an
+		// install hint instead of failing silently.
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "tmux-missing"})
+		return
+	}
 	sessions, err := tmux.List()
 	if err != nil {
 		writeErr(w, err)

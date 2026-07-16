@@ -15,12 +15,18 @@ import (
 // Bin is the resolved tmux binary. GUI-launched processes (the desktop
 // app's sidecar, launchd without a PATH override) inherit a PATH without
 // Homebrew or MacPorts, so a bare "tmux" fails on most Macs — probe the
-// standard install locations before giving up.
-var Bin = findTmux()
+// standard install locations before giving up. Found=false lets the API
+// report "tmux missing" as a state instead of a cryptic exec error.
+// MUXDECK_TMUX overrides the search entirely.
+var Bin, Found = findTmux()
 
-func findTmux() string {
+func findTmux() (string, bool) {
+	if p := os.Getenv("MUXDECK_TMUX"); p != "" {
+		_, err := os.Stat(p)
+		return p, err == nil
+	}
 	if p, err := exec.LookPath("tmux"); err == nil {
-		return p
+		return p, true
 	}
 	for _, p := range []string{
 		"/opt/homebrew/bin/tmux",
@@ -28,10 +34,10 @@ func findTmux() string {
 		"/opt/local/bin/tmux",
 	} {
 		if _, err := os.Stat(p); err == nil {
-			return p
+			return p, true
 		}
 	}
-	return "tmux" // let exec surface the not-found error
+	return "tmux", false
 }
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
