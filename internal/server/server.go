@@ -129,6 +129,12 @@ func writeErr(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	if !tmux.Found {
+		// A machine state, not a request error — the UI turns this into an
+		// install hint instead of failing silently.
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "tmux-missing"})
+		return
+	}
 	sessions, err := tmux.List()
 	if err != nil {
 		writeErr(w, err)
@@ -304,7 +310,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 
 	// Each websocket gets its own tmux client attached to the session, so
 	// multiple browsers can view the same session just like multiple terminals.
-	cmd := exec.Command("tmux", "attach-session", "-t", "="+name)
+	cmd := exec.Command(tmux.Bin, "attach-session", "-t", "="+name)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 	ptmx, err := pty.Start(cmd)
 	if err != nil {

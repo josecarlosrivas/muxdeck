@@ -355,3 +355,22 @@ body {
   50% { opacity: 0.45; }
 }
 #notify.armed { color: var(--accent); }
+
+/* tmux-not-installed empty state */
+#sessions .tmux-missing {
+  display: block;
+  padding: 14px 12px;
+  cursor: default;
+  border-left: 3px solid var(--accent);
+}
+#sessions .tmux-missing b { font-size: 13px; }
+#sessions .tmux-missing p { font-size: 12px; color: var(--fg-dim); margin: 4px 0 8px; }
+#sessions .tmux-missing code {
+  display: inline-block;
+  font-size: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}

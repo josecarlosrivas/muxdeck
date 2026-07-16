@@ -451,11 +451,33 @@ function orderedSessions() {
   );
 }
 
+function renderTmuxMissing() {
+  const ul = $("#sessions");
+  ul.innerHTML = "";
+  const li = document.createElement("li");
+  li.className = "tmux-missing";
+  const cmd = /Mac/.test(navigator.platform) ? "brew install tmux" : "sudo apt install tmux";
+  const b = document.createElement("b");
+  b.textContent = "muxdeck needs tmux";
+  const p = document.createElement("p");
+  p.textContent = "Install it, then hit ↻ up top:";
+  const code = document.createElement("code");
+  code.textContent = cmd;
+  code.title = "click to copy";
+  code.addEventListener("click", () => {
+    navigator.clipboard?.writeText(cmd);
+    p.textContent = "Copied. Install it, then hit ↻ up top:";
+  });
+  li.append(b, p, code);
+  ul.appendChild(li);
+}
+
 async function refreshSessions() {
   let sessions;
   try {
     sessions = await api("/api/sessions");
-  } catch {
+  } catch (err) {
+    if (err.message === "tmux-missing") renderTmuxMissing();
     return;
   }
   lastSessions = sessions;
