@@ -4,12 +4,35 @@ package tmux
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// Bin is the resolved tmux binary. GUI-launched processes (the desktop
+// app's sidecar, launchd without a PATH override) inherit a PATH without
+// Homebrew or MacPorts, so a bare "tmux" fails on most Macs — probe the
+// standard install locations before giving up.
+var Bin = findTmux()
+
+func findTmux() string {
+	if p, err := exec.LookPath("tmux"); err == nil {
+		return p
+	}
+	for _, p := range []string{
+		"/opt/homebrew/bin/tmux",
+		"/usr/local/bin/tmux",
+		"/opt/local/bin/tmux",
+	} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return "tmux" // let exec surface the not-found error
+}
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
@@ -27,7 +50,7 @@ type Session struct {
 func ValidName(name string) bool { return nameRe.MatchString(name) }
 
 func run(args ...string) error {
-	out, err := exec.Command("tmux", args...).CombinedOutput()
+	out, err := exec.Command(Bin, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tmux %s: %s", args[0], strings.TrimSpace(string(out)))
 	}
@@ -42,7 +65,7 @@ func run(args ...string) error {
 // TAB is not safe here: tmux ≥3.6 sanitizes control characters to "_" when the
 // client runs outside tmux — exactly the daemon case.
 func List() ([]Session, error) {
-	out, err := exec.Command("tmux", "list-sessions", "-F",
+	out, err := exec.Command(Bin, "list-sessions", "-F",
 		"#{session_windows}|#{session_created}|#{session_attached}|#{session_activity}|#{session_name}").CombinedOutput()
 	if err != nil {
 		msg := string(out)
@@ -74,7 +97,7 @@ func EnsureClipboard() error {
 	if err := run("set-option", "-s", "set-clipboard", "on"); err != nil {
 		return err
 	}
-	out, err := exec.Command("tmux", "show-options", "-s", "-v", "terminal-overrides").CombinedOutput()
+	out, err := exec.Command(Bin, "show-options", "-s", "-v", "terminal-overrides").CombinedOutput()
 	if err == nil && strings.Contains(string(out), "Ms=") {
 		return nil
 	}
@@ -101,13 +124,13 @@ func Mouse(name string) (bool, error) {
 	if !Has(name) {
 		return false, fmt.Errorf("no such session: %s", name)
 	}
-	out, err := exec.Command("tmux", "show-options", "-t", name, "-v", "mouse").CombinedOutput()
+	out, err := exec.Command(Bin, "show-options", "-t", name, "-v", "mouse").CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("tmux show-options: %s", strings.TrimSpace(string(out)))
 	}
 	v := strings.TrimSpace(string(out))
 	if v == "" {
-		out, err = exec.Command("tmux", "show-options", "-g", "-v", "mouse").CombinedOutput()
+		out, err = exec.Command(Bin, "show-options", "-g", "-v", "mouse").CombinedOutput()
 		if err != nil {
 			return false, fmt.Errorf("tmux show-options -g: %s", strings.TrimSpace(string(out)))
 		}
@@ -145,5 +168,5 @@ func Has(name string) bool {
 	if !ValidName(name) {
 		return false
 	}
-	return exec.Command("tmux", "has-session", "-t", "="+name).Run() == nil
+	return exec.Command(Bin, "has-session", "-t", "="+name).Run() == nil
 }
