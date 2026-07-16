@@ -1,0 +1,5 @@
+node_modules/
+dist-bundle/
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/gen/
