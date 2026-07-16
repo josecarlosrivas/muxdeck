@@ -306,6 +306,14 @@ footer {
           the tmux server, not in muxdeck — restart muxdeck and everything is still
           running.</p>
         </div>
+        <div class="pane">
+          <h3>Agent-aware</h3>
+          <p>Sessions running AI coding agents show a live badge — state, model,
+          spend — and muxdeck notifies you the moment an agent blocks on your
+          input. Agents self-report over one endpoint;
+          <a href="https://github.com/josecarlosrivas/muxdeck/tree/main/integrations">adapters</a>
+          ship for Claude Code.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -322,9 +330,25 @@ footer {
     </div>
   </section>
 
+  <section id="desktop">
+    <div class="wrap">
+      <p class="eyebrow">3:desktop</p>
+      <h2>The Mac app</h2>
+      <p>Everything above, in a window of its own — no terminal required to get
+      started. Signed and notarized, so it opens straight from the download.</p>
+      <div class="modes">
+        <div class="mode"><code>download → drag → open</code><span>the daemon is bundled; the app starts and stops it for you</span></div>
+        <div class="mode"><code>plays nice with a service</code><span>already run muxdeck via launchd? The app attaches instead of spawning a second daemon</span></div>
+        <div class="mode"><code>native notifications</code><span>agent needs-input alerts land in Notification Center, even with the window closed</span></div>
+      </div>
+      <p class="accesscode"><a href="https://github.com/josecarlosrivas/muxdeck/releases/latest/download/muxdeck_macos_arm64.dmg"><b>Download muxdeck.dmg</b></a>
+      — Apple silicon. Prefer the CLI? Keep reading.</p>
+    </div>
+  </section>
+
   <section id="install">
     <div class="wrap">
-      <p class="eyebrow">3:install</p>
+      <p class="eyebrow">4:install</p>
       <h2>Run it your way</h2>
       <p>The installer detects your platform, checks for tmux, and offers to set up a
       systemd or launchd service. Or grab a <a href="https://github.com/josecarlosrivas/muxdeck/releases">release binary</a>
@@ -339,6 +363,18 @@ footer {
       default: bind beyond loopback without a token and muxdeck prints
       <b>access code: XK7M2P</b> at startup. Opting out is explicit
       (<b>-no-auth</b>), never accidental.</p>
+    </div>
+  </section>
+
+  <section id="roadmap">
+    <div class="wrap">
+      <p class="eyebrow">5:roadmap</p>
+      <h2>Where it's headed</h2>
+      <div class="modes">
+        <div class="mode"><code>linux desktop</code><span>the same app for Linux — the daemon already ships linux binaries; the shell follows</span></div>
+        <div class="mode"><code>web push</code><span>agent alerts on your phone — the PWA gets real push, not just in-page notifications</span></div>
+        <div class="mode"><code>more agent adapters</code><span>Codex CLI next; anything that can run a command on state change can report</span></div>
+      </div>
     </div>
   </section>
 </main>
@@ -357,7 +393,9 @@ footer {
     <a class="win" href="#muxdeck" data-w="muxdeck">0:muxdeck</a>
     <a class="win" href="#features" data-w="features">1:features</a>
     <a class="win" href="#demo" data-w="demo">2:demo</a>
-    <a class="win" href="#install" data-w="install">3:install</a>
+    <a class="win" href="#desktop" data-w="desktop">3:desktop</a>
+    <a class="win" href="#install" data-w="install">4:install</a>
+    <a class="win" href="#roadmap" data-w="roadmap">5:roadmap</a>
   </div>
   <span class="clock" id="clock"></span>
 </nav>
