@@ -412,10 +412,29 @@ let lastSessions = [];
 const seenActivity = new Map(); // name -> last activity we consider seen
 const agentStates = new Map(); // name -> last agent state, for waiting-transition alerts
 
-function notifyAgentWaiting(s) {
-  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-  const n = new Notification(`${s.name}: agent needs input`, {
-    body: s.agent.note || `${s.agent.agent} is waiting for you`,
+// Two notification backends: the web Notification API in browsers, and the
+// Tauri notification plugin in the desktop app (WKWebView has no web API;
+// the plugin posts to macOS Notification Center instead — works even with
+// the window closed).
+const tauriNotif = window.__TAURI__?.notification;
+
+async function notifGranted() {
+  if (tauriNotif) return tauriNotif.isPermissionGranted();
+  return typeof Notification !== "undefined" && Notification.permission === "granted";
+}
+
+async function notifyAgentWaiting(s) {
+  if (!(await notifGranted())) return;
+  const title = `${s.name}: agent needs input`;
+  const body = s.agent.note || `${s.agent.agent} is waiting for you`;
+  if (tauriNotif) {
+    // Clicking a Notification Center alert focuses the app (macOS default);
+    // per-notification click handlers aren't exposed by the plugin.
+    tauriNotif.sendNotification({ title, body });
+    return;
+  }
+  const n = new Notification(title, {
+    body,
     tag: `muxdeck-agent-${s.name}`, // collapse repeats for the same session
   });
   n.onclick = () => {
@@ -582,16 +601,22 @@ async function renameSession(oldName) {
 
 $("#refresh").addEventListener("click", refreshSessions);
 
-// Notification opt-in. Shown only where the page Notification API exists
-// (not iOS Safari — that needs Web Push, which muxdeck doesn't do yet).
-if (typeof Notification !== "undefined") {
+// Notification opt-in. Shown where a backend exists: the page Notification
+// API in browsers, the Tauri plugin in the desktop app. Neither exists on
+// iOS Safari — that needs Web Push, which muxdeck doesn't do yet.
+if (tauriNotif || typeof Notification !== "undefined") {
   const btn = $("#notify");
   btn.hidden = false;
-  const paint = () => btn.classList.toggle("armed", Notification.permission === "granted");
+  const paint = async () => btn.classList.toggle("armed", await notifGranted());
   paint();
   btn.addEventListener("click", async () => {
-    if (Notification.permission === "default") await Notification.requestPermission();
-    else if (Notification.permission === "denied") alert("Notifications are blocked for this site — enable them in browser settings.");
+    if (tauriNotif) {
+      if (!(await tauriNotif.isPermissionGranted())) await tauriNotif.requestPermission();
+    } else if (Notification.permission === "default") {
+      await Notification.requestPermission();
+    } else if (Notification.permission === "denied") {
+      alert("Notifications are blocked for this site — enable them in browser settings.");
+    }
     paint();
   });
 }

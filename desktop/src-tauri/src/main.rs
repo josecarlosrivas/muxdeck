@@ -20,6 +20,7 @@ fn daemon_up() -> bool {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let mut child: Option<Child> = None;
             if !daemon_up() {
