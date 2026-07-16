@@ -101,11 +101,6 @@ document.addEventListener("keydown", (e) => {
   if (chord(e, "k")) {
     e.preventDefault();
     $("#palette").hidden ? openPalette("switch") : closePalette();
-  } else if (chord(e, "n")) {
-    // Browsers reserve Cmd+N for themselves; this lands in the desktop app.
-    // Browser path: Cmd+K, type a fresh name, pick "create".
-    e.preventDefault();
-    openPalette("new");
   } else if (chord(e, "f") && paneFor()?.term) {
     e.preventDefault();
     paneFor().toggleFind(true);
