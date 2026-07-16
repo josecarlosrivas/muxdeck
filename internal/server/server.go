@@ -18,6 +18,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
+	"github.com/josecarlosrivas/muxdeck/internal/agent"
 	"github.com/josecarlosrivas/muxdeck/internal/tmux"
 )
 
@@ -32,10 +33,11 @@ type Server struct {
 	mux      *http.ServeMux
 	token    string
 	foldCase bool // generated codes are matched case-insensitively, GitHub-device-auth style
+	agents   *agent.Store
 }
 
 func New(static fs.FS, token string, foldCase bool) *Server {
-	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase}
+	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore()}
 	s.mux.Handle("/", http.FileServerFS(static))
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
@@ -45,6 +47,7 @@ func New(static fs.FS, token string, foldCase bool) *Server {
 	s.mux.HandleFunc("GET /api/sessions/{name}/mouse", s.auth(s.handleMouseGet))
 	s.mux.HandleFunc("POST /api/sessions/{name}/mouse", s.auth(s.handleMouseSet))
 	s.mux.HandleFunc("GET /api/sessions/{name}/attach", s.auth(s.handleAttach))
+	s.mux.HandleFunc("POST /api/agent/status", s.auth(s.handleAgentStatus))
 	return s
 }
 
@@ -131,7 +134,71 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, sessions)
+	names := make([]string, len(sessions))
+	for i, sess := range sessions {
+		names[i] = sess.Name
+	}
+	s.agents.Prune(names)
+
+	type listEntry struct {
+		tmux.Session
+		Agent *agent.Status `json:"agent,omitempty"`
+	}
+	out := make([]listEntry, len(sessions))
+	for i, sess := range sessions {
+		out[i] = listEntry{Session: sess}
+		if st, ok := s.agents.Get(sess.Name); ok {
+			out[i].Agent = &st
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleAgentStatus ingests self-reported agent state. The payload is
+// display data, not commands — unknown sessions are accepted so a status
+// posted during session startup isn't lost, and Prune reaps them later.
+func (s *Server) handleAgentStatus(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Session string  `json:"session"`
+		Agent   string  `json:"agent"`
+		State   string  `json:"state"`
+		Model   string  `json:"model"`
+		CostUSD float64 `json:"cost_usd"`
+		Note    string  `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Session == "" || body.Agent == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if !tmux.ValidName(body.Session) {
+		writeErr(w, tmux.ErrBadName)
+		return
+	}
+	if !agent.ValidState(body.State) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": agent.ErrBadState.Error()})
+		return
+	}
+	if len(body.Note) > 200 {
+		body.Note = body.Note[:200]
+	}
+	// State-only posts (hooks) shouldn't blank the model/spend that the
+	// statusline reported a moment earlier.
+	if prev, ok := s.agents.Get(body.Session); ok && prev.Agent == body.Agent {
+		if body.Model == "" {
+			body.Model = prev.Model
+		}
+		if body.CostUSD == 0 {
+			body.CostUSD = prev.CostUSD
+		}
+	}
+	s.agents.Set(body.Session, agent.Status{
+		Agent:   body.Agent,
+		State:   body.State,
+		Model:   body.Model,
+		CostUSD: body.CostUSD,
+		Note:    body.Note,
+	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {

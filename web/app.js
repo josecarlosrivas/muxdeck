@@ -410,6 +410,39 @@ function attachFromHash() {
 
 let lastSessions = [];
 const seenActivity = new Map(); // name -> last activity we consider seen
+const agentStates = new Map(); // name -> last agent state, for waiting-transition alerts
+
+// Two notification backends: the web Notification API in browsers, and the
+// Tauri notification plugin in the desktop app (WKWebView has no web API;
+// the plugin posts to macOS Notification Center instead — works even with
+// the window closed).
+const tauriNotif = window.__TAURI__?.notification;
+
+async function notifGranted() {
+  if (tauriNotif) return tauriNotif.isPermissionGranted();
+  return typeof Notification !== "undefined" && Notification.permission === "granted";
+}
+
+async function notifyAgentWaiting(s) {
+  if (!(await notifGranted())) return;
+  const title = `${s.name}: agent needs input`;
+  const body = s.agent.note || `${s.agent.agent} is waiting for you`;
+  if (tauriNotif) {
+    // Clicking a Notification Center alert focuses the app (macOS default);
+    // per-notification click handlers aren't exposed by the plugin.
+    tauriNotif.sendNotification({ title, body });
+    return;
+  }
+  const n = new Notification(title, {
+    body,
+    tag: `muxdeck-agent-${s.name}`, // collapse repeats for the same session
+  });
+  n.onclick = () => {
+    window.focus();
+    paneFor().attach(s.name);
+    n.close();
+  };
+}
 
 function orderedSessions() {
   const idx = new Map(order.map((n, i) => [n, i]));
@@ -430,6 +463,20 @@ async function refreshSessions() {
   for (const s of sessions) {
     // Viewing a session counts as seeing its output; new sessions start seen.
     if (attached.has(s.name) || !seenActivity.has(s.name)) seenActivity.set(s.name, s.activity);
+
+    // Alert on the transition into waiting, not while it persists — and not
+    // when the session is already on screen in a visible tab.
+    const state = s.agent?.state;
+    if (
+      state === "waiting" &&
+      agentStates.get(s.name) !== "waiting" &&
+      agentStates.has(s.name) &&
+      (document.hidden || !attached.has(s.name))
+    ) {
+      notifyAgentWaiting(s);
+    }
+    if (state) agentStates.set(s.name, state);
+    else agentStates.delete(s.name);
   }
 
   const ul = $("#sessions");
@@ -453,6 +500,18 @@ async function refreshSessions() {
       dot.className = "dot";
       dot.title = "new output";
       name.append(" ", dot);
+    }
+
+    if (s.agent) {
+      const badge = document.createElement("span");
+      badge.className = `agent agent-${s.agent.state}`;
+      const icon = { working: "◐", waiting: "✋", idle: "○" }[s.agent.state] || "?";
+      const cost = s.agent.cost_usd ? ` · $${s.agent.cost_usd.toFixed(2)}` : "";
+      badge.textContent = `${icon} ${s.agent.model || s.agent.agent}${cost}`;
+      badge.title = `${s.agent.agent} is ${s.agent.state}` +
+        (s.agent.note ? ` — ${s.agent.note}` : "") +
+        ` · updated ${new Date(s.agent.updated_at).toLocaleTimeString()}`;
+      name.append(" ", badge);
     }
 
     const meta = document.createElement("span");
@@ -541,6 +600,26 @@ async function renameSession(oldName) {
 }
 
 $("#refresh").addEventListener("click", refreshSessions);
+
+// Notification opt-in. Shown where a backend exists: the page Notification
+// API in browsers, the Tauri plugin in the desktop app. Neither exists on
+// iOS Safari — that needs Web Push, which muxdeck doesn't do yet.
+if (tauriNotif || typeof Notification !== "undefined") {
+  const btn = $("#notify");
+  btn.hidden = false;
+  const paint = async () => btn.classList.toggle("armed", await notifGranted());
+  paint();
+  btn.addEventListener("click", async () => {
+    if (tauriNotif) {
+      if (!(await tauriNotif.isPermissionGranted())) await tauriNotif.requestPermission();
+    } else if (Notification.permission === "default") {
+      await Notification.requestPermission();
+    } else if (Notification.permission === "denied") {
+      alert("Notifications are blocked for this site — enable them in browser settings.");
+    }
+    paint();
+  });
+}
 
 $("#new-session").addEventListener("submit", async (e) => {
   e.preventDefault();
