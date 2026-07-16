@@ -55,9 +55,9 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: npx tauri build --bundles app
-      - name: Package DMG
-        run: desktop/make-dmg.sh
-      - name: Notarize and staple
+      - name: Notarize and staple app
+        # Stapling the .app itself (not just the DMG) lets Gatekeeper verify
+        # the dragged-out app offline on first launch.
         working-directory: desktop
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
@@ -70,8 +70,23 @@ jobs:
           else
             printf '%s' "$APPLE_API_KEY_CONTENT" | base64 --decode > "$key"
           fi
-          xcrun notarytool submit muxdeck_*.dmg \
+          app=src-tauri/target/release/bundle/macos/muxdeck.app
+          ditto -c -k --keepParent "$app" muxdeck-app.zip
+          xcrun notarytool submit muxdeck-app.zip \
             --key "$key" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$app"
+          rm muxdeck-app.zip
+      - name: Package DMG
+        run: desktop/make-dmg.sh
+      - name: Notarize and staple DMG
+        working-directory: desktop
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          xcrun notarytool submit muxdeck_*.dmg \
+            --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
             --wait
           xcrun stapler staple muxdeck_*.dmg
       - name: Upload DMG to release
