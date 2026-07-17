@@ -129,6 +129,9 @@ document.addEventListener("keydown", (e) => {
   } else if (chord(e, "f") && paneFor()?.term) {
     e.preventDefault();
     paneFor().toggleFind(true);
+  } else if (chord(e, "b")) {
+    e.preventDefault();
+    toggleSidebar();
   }
 });
 
@@ -236,7 +239,7 @@ class Pane {
     this.term.loadAddon(new WebLinksAddon.WebLinksAddon((e, uri) => window.open(uri, "_blank", "noopener")));
     this.term.parser.registerOscHandler(52, (data) => { osc52ToClipboard(data); return true; });
     this.term.onData((d) => this.send(applyCtrl(d)));
-    this.term.attachCustomKeyEventHandler((e) => !(chord(e, "k") || chord(e, "f")));
+    this.term.attachCustomKeyEventHandler((e) => !(chord(e, "k") || chord(e, "f") || chord(e, "b")));
     const mount = this.el.querySelector(".pane-term");
     mount.innerHTML = "";
     this.term.open(mount);
@@ -396,6 +399,7 @@ function addPane() {
   $("#panes").appendChild(p.el);
   $("#panes").classList.toggle("split", panes.length > 1);
   $("#split").classList.toggle("armed", panes.length > 1);
+  updateDivider();
   setFocus(p);
   return p;
 }
@@ -410,6 +414,7 @@ function closePane(p) {
   panes = panes.filter((q) => q !== p);
   $("#panes").classList.toggle("split", panes.length > 1);
   $("#split").classList.toggle("armed", panes.length > 1);
+  updateDivider();
   if (focusedPane === p) setFocus(panes[0]);
   updateHash();
   refreshSessions();
@@ -419,6 +424,82 @@ $("#split").addEventListener("click", () => {
   if (panes.length === 1) addPane();
   else closePane(panes[panes.length - 1]);
 });
+
+// --- layout: sidebar width/collapse + split ratio, persisted ---
+
+function sidebarW() {
+  return Math.max(230, Math.min(480, +localStorage.getItem("muxdeck-sidebar-w") || 230));
+}
+
+function applySidebar() {
+  document.documentElement.style.setProperty("--sidebar-w", `${sidebarW()}px`);
+  $("#sidebar").classList.toggle("collapsed", localStorage.getItem("muxdeck-sidebar-collapsed") === "1");
+}
+
+function toggleSidebar() {
+  const collapsed = $("#sidebar").classList.toggle("collapsed");
+  localStorage.setItem("muxdeck-sidebar-collapsed", collapsed ? "1" : "");
+}
+
+// Horizontal drag: pointer capture keeps moves on the handle even when the
+// cursor crosses the terminal canvas.
+function hDrag(el, move) {
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    el.classList.add("dragging");
+    const onMove = (ev) => move(ev.clientX);
+    const onUp = () => {
+      el.classList.remove("dragging");
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+    };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+  });
+}
+
+hDrag($("#sidebar-resizer"), (x) => {
+  localStorage.setItem("muxdeck-sidebar-w", Math.round(Math.max(230, Math.min(480, x))));
+  document.documentElement.style.setProperty("--sidebar-w", `${sidebarW()}px`);
+});
+$("#sidebar-resizer").addEventListener("dblclick", toggleSidebar);
+$("#sidebar-expand").innerHTML = icon("chevronRight");
+$("#sidebar").addEventListener("click", () => {
+  if ($("#sidebar").classList.contains("collapsed")) toggleSidebar();
+});
+
+let divider = null;
+
+function applySplit() {
+  if (panes.length < 2) return;
+  const ratio = +localStorage.getItem("muxdeck-split") || 0;
+  panes[0].el.style.flex = ratio ? `0 0 ${(ratio * 100).toFixed(1)}%` : "";
+}
+
+function updateDivider() {
+  if (panes.length === 2 && !divider) {
+    divider = document.createElement("div");
+    divider.id = "pane-divider";
+    divider.title = "drag to resize · double-click for 50/50";
+    $("#panes").insertBefore(divider, panes[1].el);
+    hDrag(divider, (x) => {
+      const r = $("#panes").getBoundingClientRect();
+      const ratio = Math.max(0.15, Math.min(0.85, (x - r.left) / r.width));
+      localStorage.setItem("muxdeck-split", ratio.toFixed(3));
+      applySplit();
+    });
+    divider.addEventListener("dblclick", () => {
+      localStorage.removeItem("muxdeck-split");
+      applySplit();
+    });
+    applySplit();
+  } else if (panes.length < 2 && divider) {
+    divider.remove();
+    divider = null;
+    panes[0]?.el.style.removeProperty("flex");
+  }
+}
 
 function updateHash() {
   const names = panes.map((p) => p.session).filter(Boolean);
@@ -695,6 +776,7 @@ const PAL_COMMANDS = [
   { name: ":rename",  hint: "rename session",         run: () => setPalMode("pick", "rename") },
   { name: ":kill",    hint: "kill session",           run: () => setPalMode("pick", "kill") },
   { name: ":split",   hint: "toggle split view",      run: () => { closePalette(); $("#split").click(); } },
+  { name: ":sidebar", hint: "collapse/expand sidebar", run: () => { closePalette(); toggleSidebar(); } },
   { name: ":mouse",   hint: "toggle tmux mouse mode", run: () => { closePalette(); paneFor()?.toggleMouse(); } },
   { name: ":font +",  hint: "bigger text",  keep: true, run: () => setFontSize(fontSize + 1) },
   { name: ":font -",  hint: "smaller text", keep: true, run: () => setFontSize(fontSize - 1) },
@@ -948,6 +1030,7 @@ function initKeybar() {
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
+applySidebar();
 addPane();
 initKeybar();
 window.addEventListener("resize", () => panes.forEach((p) => p.sendResize()));
