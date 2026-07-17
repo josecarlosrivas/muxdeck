@@ -1,0 +1,465 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		22E980116F01603AFF5790A7 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 035A825F21E2C842C88F40EC /* assets */; };
+		23C67EA57DAE1AFE27AE11C3 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0C778B972671525CC8E1F130 /* main.mm */; };
+		4976F88D18ABA669391CD28B /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6AC3A721BF376C1AF5E304BE /* CoreGraphics.framework */; };
+		700DD32F7D6E4B8323508F56 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A30824A957E1012D0E6B3B3F /* libapp.a */; };
+		7338E39DEFB7A89E9F017D74 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F37539CC20407645B768436B /* LaunchScreen.storyboard */; };
+		820BB1A6F6BF7DEC9C95053E /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ED7E4A52A1EF101F77FAE18D /* Metal.framework */; };
+		8F826EB287664D95D9DDC9D6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1383D0C19C74799AAC93DE9 /* Assets.xcassets */; };
+		97363F67945045381128DAC1 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F23D647729E02A2A320CBB0 /* Security.framework */; };
+		9990E6F3815D36CF21F4E046 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CAC7E5EA1A5A6988D67656EE /* MetalKit.framework */; };
+		B5F023CBF77DD9C394EFFA6E /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F0EF240D5CD32F6C2510FB6B /* QuartzCore.framework */; };
+		E720A0DE960642EAC21B6337 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 836A31D8F28415474C3C42A0 /* WebKit.framework */; };
+		F730093BBB8A9E0A580B538A /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A92BDACB3472C5CC0F47C833 /* UIKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		035A825F21E2C842C88F40EC /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		0C778B972671525CC8E1F130 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		0D92583BDC228D7387033C9D /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		56DD94829BA813E350643E8E /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		5C0A57712F299373A0C24B12 /* muxdeck-desktop_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "muxdeck-desktop_iOS.entitlements"; sourceTree = "<group>"; };
+		5F23D647729E02A2A320CBB0 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		6AC3A721BF376C1AF5E304BE /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		75D09F9CEBF2269212C7522E /* muxdeck-desktop_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "muxdeck-desktop_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		836A31D8F28415474C3C42A0 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		A30824A957E1012D0E6B3B3F /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		A92BDACB3472C5CC0F47C833 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		AAB6E41C8CD390A58648B2E4 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		B9ED11BF3F8D4B96EF70AD52 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		CAC7E5EA1A5A6988D67656EE /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		E1383D0C19C74799AAC93DE9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		ED7E4A52A1EF101F77FAE18D /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		F0EF240D5CD32F6C2510FB6B /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		F37539CC20407645B768436B /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E58BAD8C1012D1A7E4A6E457 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				700DD32F7D6E4B8323508F56 /* libapp.a in Frameworks */,
+				4976F88D18ABA669391CD28B /* CoreGraphics.framework in Frameworks */,
+				820BB1A6F6BF7DEC9C95053E /* Metal.framework in Frameworks */,
+				9990E6F3815D36CF21F4E046 /* MetalKit.framework in Frameworks */,
+				B5F023CBF77DD9C394EFFA6E /* QuartzCore.framework in Frameworks */,
+				97363F67945045381128DAC1 /* Security.framework in Frameworks */,
+				F730093BBB8A9E0A580B538A /* UIKit.framework in Frameworks */,
+				E720A0DE960642EAC21B6337 /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2387EC09557FDF36E5C6636C /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				EE1541443FCF5823D27604FD /* muxdeck-desktop */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		4B13394E789CC074B476D081 /* muxdeck-desktop_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				B9ED11BF3F8D4B96EF70AD52 /* Info.plist */,
+				5C0A57712F299373A0C24B12 /* muxdeck-desktop_iOS.entitlements */,
+			);
+			path = "muxdeck-desktop_iOS";
+			sourceTree = "<group>";
+		};
+		760CA012B8980FB934488320 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				75D09F9CEBF2269212C7522E /* muxdeck-desktop_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		77C9B763CA46F47EA0A34C99 /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		BEA8E5B44DFF0CA33B7965F2 = {
+			isa = PBXGroup;
+			children = (
+				035A825F21E2C842C88F40EC /* assets */,
+				E1383D0C19C74799AAC93DE9 /* Assets.xcassets */,
+				F37539CC20407645B768436B /* LaunchScreen.storyboard */,
+				77C9B763CA46F47EA0A34C99 /* Externals */,
+				4B13394E789CC074B476D081 /* muxdeck-desktop_iOS */,
+				2387EC09557FDF36E5C6636C /* Sources */,
+				C1EA061C67ED939BDA757A4D /* src */,
+				D3E9B24A634CDC134F580102 /* Frameworks */,
+				760CA012B8980FB934488320 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C1EA061C67ED939BDA757A4D /* src */ = {
+			isa = PBXGroup;
+			children = (
+				0D92583BDC228D7387033C9D /* lib.rs */,
+				56DD94829BA813E350643E8E /* main.rs */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		D3E9B24A634CDC134F580102 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				6AC3A721BF376C1AF5E304BE /* CoreGraphics.framework */,
+				A30824A957E1012D0E6B3B3F /* libapp.a */,
+				ED7E4A52A1EF101F77FAE18D /* Metal.framework */,
+				CAC7E5EA1A5A6988D67656EE /* MetalKit.framework */,
+				F0EF240D5CD32F6C2510FB6B /* QuartzCore.framework */,
+				5F23D647729E02A2A320CBB0 /* Security.framework */,
+				A92BDACB3472C5CC0F47C833 /* UIKit.framework */,
+				836A31D8F28415474C3C42A0 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		EE1541443FCF5823D27604FD /* muxdeck-desktop */ = {
+			isa = PBXGroup;
+			children = (
+				0C778B972671525CC8E1F130 /* main.mm */,
+				F1E9F4A6AC535B9EC33704C7 /* bindings */,
+			);
+			path = "muxdeck-desktop";
+			sourceTree = "<group>";
+		};
+		F1E9F4A6AC535B9EC33704C7 /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				AAB6E41C8CD390A58648B2E4 /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		91646B649C18510DF1ED8759 /* muxdeck-desktop_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EE313327AB687B57B954F5BC /* Build configuration list for PBXNativeTarget "muxdeck-desktop_iOS" */;
+			buildPhases = (
+				0049799B131ED3450EC05308 /* Build Rust Code */,
+				E914F7E18D38E745544AEEE7 /* Sources */,
+				C094C5EF89942F36F7ED6056 /* Resources */,
+				E58BAD8C1012D1A7E4A6E457 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "muxdeck-desktop_iOS";
+			packageProductDependencies = (
+			);
+			productName = "muxdeck-desktop_iOS";
+			productReference = 75D09F9CEBF2269212C7522E /* muxdeck-desktop_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		9B793C4044286A8DD68075FE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					91646B649C18510DF1ED8759 = {
+						DevelopmentTeam = 2SDFN3YMRV;
+					};
+				};
+			};
+			buildConfigurationList = 3FE942879994E348B8755BA1 /* Build configuration list for PBXProject "muxdeck-desktop" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = BEA8E5B44DFF0CA33B7965F2;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 760CA012B8980FB934488320 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				91646B649C18510DF1ED8759 /* muxdeck-desktop_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C094C5EF89942F36F7ED6056 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8F826EB287664D95D9DDC9D6 /* Assets.xcassets in Resources */,
+				7338E39DEFB7A89E9F017D74 /* LaunchScreen.storyboard in Resources */,
+				22E980116F01603AFF5790A7 /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		0049799B131ED3450EC05308 /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E914F7E18D38E745544AEEE7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				23C67EA57DAE1AFE27AE11C3 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		685B6EA57B9E184E379BBFEA /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		957C60C97E6F040FFD465FDE /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "muxdeck-desktop_iOS/muxdeck-desktop_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 2SDFN3YMRV;
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "muxdeck-desktop_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.heckery.muxdeck;
+				PRODUCT_NAME = muxdeck;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+		A02C92BE61C8E6B8DC43CC07 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "muxdeck-desktop_iOS/muxdeck-desktop_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 2SDFN3YMRV;
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "muxdeck-desktop_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.heckery.muxdeck;
+				PRODUCT_NAME = muxdeck;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		D068A15E0F6C9366C233C91A /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3FE942879994E348B8755BA1 /* Build configuration list for PBXProject "muxdeck-desktop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D068A15E0F6C9366C233C91A /* debug */,
+				685B6EA57B9E184E379BBFEA /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		EE313327AB687B57B954F5BC /* Build configuration list for PBXNativeTarget "muxdeck-desktop_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A02C92BE61C8E6B8DC43CC07 /* debug */,
+				957C60C97E6F040FFD465FDE /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 9B793C4044286A8DD68075FE /* Project object */;
+}

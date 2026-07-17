@@ -1,0 +1,59 @@
+name: ios-testflight
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-upload:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install iOS Rust targets
+        run: rustup target add aarch64-apple-ios
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci
+      - name: Write App Store Connect API key
+        env:
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          key="$RUNNER_TEMP/AuthKey.p8"
+          if printf '%s' "$APPLE_API_KEY_CONTENT" | grep -q "BEGIN PRIVATE KEY"; then
+            printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$key"
+          else
+            printf '%s' "$APPLE_API_KEY_CONTENT" | base64 --decode > "$key"
+          fi
+      - name: Stamp unique build number
+        # TestFlight rejects re-used CFBundleVersion values, so each CI run
+        # gets its own.
+        run: |
+          plutil -replace CFBundleVersion -string "${GITHUB_RUN_NUMBER}" \
+            desktop/src-tauri/gen/apple/muxdeck-desktop_iOS/Info.plist
+      - name: Build signed IPA
+        working-directory: desktop
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+        run: npx tauri ios build --export-method app-store-connect
+      - name: Upload to TestFlight
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          mkdir -p private_keys
+          cp "$RUNNER_TEMP/AuthKey.p8" "private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          ipa=$(find desktop/src-tauri/gen/apple/build -name '*.ipa' | head -1)
+          [ -n "$ipa" ] || { echo "no ipa produced" >&2; exit 1; }
+          xcrun altool --upload-app --type ios -f "$ipa" \
+            --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER"
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: muxdeck-ios
+          path: desktop/src-tauri/gen/apple/build/**/*.ipa
+          if-no-files-found: ignore

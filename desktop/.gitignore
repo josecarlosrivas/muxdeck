@@ -2,5 +2,6 @@ node_modules/
 dist-bundle/
 src-tauri/target/
 src-tauri/binaries/
-src-tauri/gen/
+src-tauri/gen/apple/build/
+src-tauri/gen/apple/Externals/
 *.dmg

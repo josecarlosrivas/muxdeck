@@ -1,18 +1,22 @@
-use std::net::TcpStream;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 // Standard muxdeck port. If a daemon (e.g. a launchd service) is already
 // serving here the app attaches to it instead of spawning its own, so the
 // service and the app can coexist — the sidecar is only a fallback.
+#[cfg(desktop)]
 const ADDR: &str = "127.0.0.1:8300";
 
 struct Sidecar(Mutex<Option<std::process::Child>>);
 
+#[cfg(desktop)]
 fn daemon_up() -> bool {
-    TcpStream::connect_timeout(&ADDR.parse().unwrap(), Duration::from_millis(300)).is_ok()
+    std::net::TcpStream::connect_timeout(
+        &ADDR.parse().unwrap(),
+        std::time::Duration::from_millis(300),
+    )
+    .is_ok()
 }
 
 // iOS can't exec a sidecar; the app is a pure client of remote daemons and
@@ -32,7 +36,7 @@ fn ensure_daemon() -> Option<std::process::Child> {
         if daemon_up() {
             break;
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     Some(child)
 }
@@ -48,10 +52,20 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             app.manage(Sidecar(Mutex::new(ensure_daemon())));
-            let url = format!("http://{ADDR}").parse().expect("valid url");
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-                .title("muxdeck")
-                .inner_size(1280.0, 820.0)
+            // Desktop rides the local daemon's own UI; mobile has no daemon
+            // and loads the bundled server picker instead, which iframes the
+            // chosen remote. A fixed window size on iOS letterboxes the
+            // webview, so size only on desktop.
+            #[cfg(desktop)]
+            {
+                let url = format!("http://{ADDR}").parse().expect("valid url");
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+                    .title("muxdeck")
+                    .inner_size(1280.0, 820.0)
+                    .build()?;
+            }
+            #[cfg(not(desktop))]
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .build()?;
             Ok(())
         })
