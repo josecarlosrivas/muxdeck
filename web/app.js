@@ -830,6 +830,10 @@ function remoteHeader(r) {
   if (r.state === "ok") {
     state.textContent = `${(remoteSessions.get(r.name) || []).length}`;
     li.title = `${r.name} · ${r.mode === "ssh" ? `ssh ${r.host}` : r.url}`;
+  } else if (r.state === "off") {
+    li.classList.add("off");
+    state.textContent = "off";
+    li.title = `${r.name} · off — :remote on ${r.name} to reconnect`;
   } else {
     state.innerHTML = icon("linkOff");
     li.title = `${r.name} · ${r.error || "unreachable"}`;
@@ -1115,13 +1119,18 @@ async function openMdPicker() {
 }
 
 // ":remote ❯" one-liners: "add jack ssh jack", "add lab ssh lab.example:9000 TOKEN",
-// "add juneau url http://juneau:8300 TOKEN", "rm jack".
+// "add juneau url http://juneau:8300 TOKEN", "rm jack", "off jack", "on jack".
 async function runRemoteCommand(line) {
   const words = line.split(/\s+/).filter(Boolean);
   const [verb, name] = words;
   try {
     if (verb === "rm" && name && words.length === 2) {
       await api(`/api/remotes/${encodeURIComponent(name)}`, { method: "DELETE" });
+    } else if ((verb === "off" || verb === "on") && name && words.length === 2) {
+      await api(`/api/remotes/${encodeURIComponent(name)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ off: verb === "off" }),
+      });
     } else if (verb === "add" && words.length >= 4 && words.length <= 5) {
       const [, , mode, target, token] = words;
       const body = { name, mode, token: token || "" };
@@ -1136,7 +1145,7 @@ async function runRemoteCommand(line) {
       }
       await api("/api/remotes", { method: "POST", body: JSON.stringify(body) });
     } else {
-      throw new Error("usage: add <name> ssh <host[:port]> [token] · add <name> url <url> [token] · rm <name>");
+      throw new Error("usage: add <name> ssh <host[:port]> [token] · add <name> url <url> [token] · rm <name> · off <name> · on <name>");
     }
   } catch (err) { alert(err.message); return; }
   closePalette();
