@@ -18,6 +18,8 @@ const ICONS = {
   grip: '<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>',
   chevronLeft: '<path d="m15 18-6-6 6-6"/>',
   chevronRight: '<path d="m9 18 6-6-6-6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  linkOff: '<path d="M9 17H7A5 5 0 0 1 7 7"/><path d="M15 7h2a5 5 0 0 1 4 8"/><path d="M8 12h4"/><path d="m2 2 20 20"/>',
 };
 
 function icon(name) {
@@ -266,9 +268,8 @@ class Pane {
   }
 
   connect() {
-    const name = this.session;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/api/sessions/${encodeURIComponent(name)}/attach`);
+    const ws = new WebSocket(`${proto}//${location.host}${keyApi(this.session, "/attach")}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {
@@ -365,7 +366,7 @@ class Pane {
   async refreshMouse() {
     const btn = this.el.querySelector(".p-mouse");
     try {
-      const { enabled } = await api(`/api/sessions/${encodeURIComponent(this.session)}/mouse`);
+      const { enabled } = await api(keyApi(this.session, "/mouse"));
       btn.hidden = false;
       btn.classList.toggle("armed", enabled);
     } catch { btn.hidden = true; }
@@ -376,7 +377,7 @@ class Pane {
     const btn = this.el.querySelector(".p-mouse");
     const want = !btn.classList.contains("armed");
     try {
-      await api(`/api/sessions/${encodeURIComponent(this.session)}/mouse`, {
+      await api(keyApi(this.session, "/mouse"), {
         method: "POST",
         body: JSON.stringify({ enabled: want }),
       });
@@ -529,8 +530,33 @@ function attachFromHash() {
 // --- session list ---
 
 let lastSessions = [];
-const seenActivity = new Map(); // name -> last activity we consider seen
-const agentStates = new Map(); // name -> last agent state, for waiting-transition alerts
+let remotes = []; // /api/remotes statuses
+const remoteSessions = new Map(); // remote name -> its session list
+const seenActivity = new Map(); // key -> last activity we consider seen
+const agentStates = new Map(); // key -> last agent state, for waiting-transition alerts
+
+// Sessions are identified by key: "name" locally, "remote:name" on a remote
+// (session names can't contain ":", so the split is unambiguous). Keys flow
+// through panes, the palette, the hash, and the activity/agent maps.
+
+function keyApi(key, rest = "") {
+  const i = key.indexOf(":");
+  if (i < 0) return `/api/sessions/${encodeURIComponent(key)}${rest}`;
+  return `/api/remotes/${encodeURIComponent(key.slice(0, i))}/proxy/sessions/${encodeURIComponent(key.slice(i + 1))}${rest}`;
+}
+
+function allSessions() {
+  const out = orderedSessions().map((s) => ({ ...s, key: s.name }));
+  for (const r of remotes) {
+    for (const s of remoteSessions.get(r.name) || []) {
+      out.push({ ...s, key: `${r.name}:${s.name}`, remote: r.name });
+    }
+  }
+  return out;
+}
+
+let collapsedRemotes = {};
+try { collapsedRemotes = JSON.parse(localStorage.getItem("muxdeck-remotes-collapsed")) || {}; } catch {}
 
 // Two notification backends: the web Notification API in browsers, and the
 // Tauri notification plugin in the desktop app (WKWebView has no web API;
@@ -545,7 +571,7 @@ async function notifGranted() {
 
 async function notifyAgentWaiting(s) {
   if (!(await notifGranted())) return;
-  const title = `${s.name}: agent needs input`;
+  const title = `${s.key}: agent needs input`;
   const body = s.agent.note || `${s.agent.agent} is waiting for you`;
   if (tauriNotif) {
     // Clicking a Notification Center alert focuses the app (macOS default);
@@ -555,11 +581,11 @@ async function notifyAgentWaiting(s) {
   }
   const n = new Notification(title, {
     body,
-    tag: `muxdeck-agent-${s.name}`, // collapse repeats for the same session
+    tag: `muxdeck-agent-${s.key}`, // collapse repeats for the same session
   });
   n.onclick = () => {
     window.focus();
-    paneFor().attach(s.name);
+    paneFor().attach(s.key);
     n.close();
   };
 }
@@ -601,90 +627,145 @@ async function refreshSessions() {
     return;
   }
   lastSessions = sessions;
+
+  // Remote lists ride the same refresh tick; a dead remote must not stall
+  // or break the local render, so failures just flip its state to down.
+  try { remotes = await api("/api/remotes"); } catch { remotes = []; }
+  await Promise.all(remotes.map(async (r) => {
+    if (r.state !== "ok") { remoteSessions.delete(r.name); return; }
+    try {
+      remoteSessions.set(r.name, await api(`/api/remotes/${encodeURIComponent(r.name)}/proxy/sessions`));
+    } catch (err) {
+      remoteSessions.delete(r.name);
+      r.state = "down";
+      r.error = err.message;
+    }
+  }));
+
   const attached = new Set(panes.map((p) => p.session).filter(Boolean));
-  for (const s of sessions) {
+  for (const s of allSessions()) {
     // Viewing a session counts as seeing its output; new sessions start seen.
-    if (attached.has(s.name) || !seenActivity.has(s.name)) seenActivity.set(s.name, s.activity);
+    if (attached.has(s.key) || !seenActivity.has(s.key)) seenActivity.set(s.key, s.activity);
 
     // Alert on the transition into waiting, not while it persists — and not
     // when the session is already on screen in a visible tab.
     const state = s.agent?.state;
     if (
       state === "waiting" &&
-      agentStates.get(s.name) !== "waiting" &&
-      agentStates.has(s.name) &&
-      (document.hidden || !attached.has(s.name))
+      agentStates.get(s.key) !== "waiting" &&
+      agentStates.has(s.key) &&
+      (document.hidden || !attached.has(s.key))
     ) {
       notifyAgentWaiting(s);
     }
-    if (state) agentStates.set(s.name, state);
-    else agentStates.delete(s.name);
+    if (state) agentStates.set(s.key, state);
+    else agentStates.delete(s.key);
   }
 
   const ul = $("#sessions");
   ul.innerHTML = "";
-  for (const s of orderedSessions()) {
-    const li = document.createElement("li");
-    li.dataset.name = s.name;
-    li.classList.toggle("active", attached.has(s.name));
+  for (const s of orderedSessions()) ul.appendChild(sessionRow({ ...s, key: s.name }, attached));
+  for (const r of remotes) {
+    ul.appendChild(remoteHeader(r));
+    if (collapsedRemotes[r.name] || r.state !== "ok") continue;
+    for (const s of remoteSessions.get(r.name) || []) {
+      ul.appendChild(sessionRow({ ...s, key: `${r.name}:${s.name}`, remote: r.name }, attached));
+    }
+  }
+  if (!$("#palette").hidden) renderPalette();
+}
 
-    const grip = document.createElement("span");
-    grip.className = "grip";
+function sessionRow(s, attached) {
+  const li = document.createElement("li");
+  li.dataset.name = s.key;
+  li.classList.toggle("active", attached.has(s.key));
+  li.classList.toggle("remote-session", !!s.remote);
+
+  // Drag-reorder is a local-list affordance; remote rows keep group order.
+  const grip = document.createElement("span");
+  grip.className = "grip";
+  if (!s.remote) {
     grip.innerHTML = icon("grip");
     grip.title = "drag to reorder";
     initDrag(li, grip);
-
-    const name = document.createElement("span");
-    name.className = "name";
-    name.textContent = s.name;
-    if (s.activity > seenActivity.get(s.name)) {
-      const dot = document.createElement("span");
-      dot.className = "dot";
-      dot.title = "new output";
-      name.append(" ", dot);
-    }
-
-    if (s.agent) {
-      const badge = document.createElement("span");
-      badge.className = `agent agent-${s.agent.state}`;
-      const icon = { working: "◐", waiting: "✋", idle: "○" }[s.agent.state] || "?";
-      const cost = s.agent.cost_usd ? ` · $${s.agent.cost_usd.toFixed(2)}` : "";
-      badge.textContent = `${icon} ${s.agent.model || s.agent.agent}${cost}`;
-      badge.title = `${s.agent.agent} is ${s.agent.state}` +
-        (s.agent.note ? ` — ${s.agent.note}` : "") +
-        ` · updated ${new Date(s.agent.updated_at).toLocaleTimeString()}`;
-      name.append(" ", badge);
-    }
-
-    const meta = document.createElement("span");
-    meta.className = "meta";
-    meta.textContent = `${s.windows} win${s.windows === 1 ? "" : "s"}${s.attached > 0 ? " ●" : ""}`;
-    li.title = `${s.windows} window${s.windows === 1 ? "" : "s"} · created ${new Date(s.created).toLocaleString()}${s.attached > 0 ? " · attached" : ""}`;
-
-    const rename = document.createElement("button");
-    rename.className = "rename";
-    rename.innerHTML = icon("pencil");
-    rename.title = `rename ${s.name}`;
-    rename.addEventListener("click", (e) => {
-      e.stopPropagation();
-      renameSession(s.name);
-    });
-
-    const kill = document.createElement("button");
-    kill.className = "kill";
-    kill.innerHTML = icon("x");
-    kill.title = `kill ${s.name}`;
-    kill.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (!confirm(`Kill session "${s.name}"?`)) return;
-      await killSession(s.name);
-    });
-
-    li.append(grip, name, meta, rename, kill);
-    li.addEventListener("click", () => paneFor().attach(s.name));
-    ul.appendChild(li);
   }
-  if (!$("#palette").hidden) renderPalette();
+
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = s.name;
+  if (s.activity > seenActivity.get(s.key)) {
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.title = "new output";
+    name.append(" ", dot);
+  }
+
+  if (s.agent) {
+    const badge = document.createElement("span");
+    badge.className = `agent agent-${s.agent.state}`;
+    const glyph = { working: "◐", waiting: "✋", idle: "○" }[s.agent.state] || "?";
+    const cost = s.agent.cost_usd ? ` · $${s.agent.cost_usd.toFixed(2)}` : "";
+    badge.textContent = `${glyph} ${s.agent.model || s.agent.agent}${cost}`;
+    badge.title = `${s.agent.agent} is ${s.agent.state}` +
+      (s.agent.note ? ` — ${s.agent.note}` : "") +
+      ` · updated ${new Date(s.agent.updated_at).toLocaleTimeString()}`;
+    name.append(" ", badge);
+  }
+
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  meta.textContent = `${s.windows} win${s.windows === 1 ? "" : "s"}${s.attached > 0 ? " ●" : ""}`;
+  li.title = `${s.key} · ${s.windows} window${s.windows === 1 ? "" : "s"} · created ${new Date(s.created).toLocaleString()}${s.attached > 0 ? " · attached" : ""}`;
+
+  const rename = document.createElement("button");
+  rename.className = "rename";
+  rename.innerHTML = icon("pencil");
+  rename.title = `rename ${s.key}`;
+  rename.addEventListener("click", (e) => {
+    e.stopPropagation();
+    renameSession(s.key);
+  });
+
+  const kill = document.createElement("button");
+  kill.className = "kill";
+  kill.innerHTML = icon("x");
+  kill.title = `kill ${s.key}`;
+  kill.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Kill session "${s.key}"?`)) return;
+    await killSession(s.key);
+  });
+
+  li.append(grip, name, meta, rename, kill);
+  li.addEventListener("click", () => paneFor().attach(s.key));
+  return li;
+}
+
+function remoteHeader(r) {
+  const li = document.createElement("li");
+  li.className = "remote-head";
+  const chev = document.createElement("span");
+  chev.className = "chev";
+  chev.innerHTML = icon(collapsedRemotes[r.name] ? "chevronRight" : "chevronDown");
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = r.name;
+  const state = document.createElement("span");
+  state.className = `rstate rstate-${r.state}`;
+  if (r.state === "ok") {
+    state.textContent = `${(remoteSessions.get(r.name) || []).length}`;
+    li.title = `${r.name} · ${r.mode === "ssh" ? `ssh ${r.host}` : r.url}`;
+  } else {
+    state.innerHTML = icon("linkOff");
+    li.title = `${r.name} · ${r.error || "unreachable"}`;
+  }
+  li.append(chev, name, state);
+  li.addEventListener("click", () => {
+    collapsedRemotes[r.name] = !collapsedRemotes[r.name];
+    localStorage.setItem("muxdeck-remotes-collapsed", JSON.stringify(collapsedRemotes));
+    refreshSessions();
+  });
+  return li;
 }
 
 function initDrag(li, grip) {
@@ -695,7 +776,8 @@ function initDrag(li, grip) {
     li.classList.add("dragging");
     const ul = $("#sessions");
     const move = (ev) => {
-      const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest("#sessions li");
+      const over = document.elementFromPoint(ev.clientX, ev.clientY)
+        ?.closest("#sessions li:not(.remote-head):not(.remote-session)");
       if (over && over !== li) {
         const r = over.getBoundingClientRect();
         ul.insertBefore(li, ev.clientY < r.top + r.height / 2 ? over : over.nextSibling);
@@ -705,17 +787,18 @@ function initDrag(li, grip) {
     grip.addEventListener("pointerup", () => {
       grip.removeEventListener("pointermove", move);
       li.classList.remove("dragging");
-      order = [...ul.querySelectorAll("li")].map((n) => n.dataset.name);
+      order = [...ul.querySelectorAll("li:not(.remote-head):not(.remote-session)")].map((n) => n.dataset.name);
       saveOrder();
     }, { once: true });
   });
 }
 
-async function renameSession(oldName, name = null) {
-  name = name ?? prompt("rename session", oldName);
-  if (!name || name === oldName) return;
+async function renameSession(oldKey, name = null) {
+  const prefix = oldKey.includes(":") ? oldKey.slice(0, oldKey.indexOf(":") + 1) : "";
+  name = name ?? prompt("rename session", oldKey.slice(prefix.length));
+  if (!name || prefix + name === oldKey) return;
   try {
-    await api(`/api/sessions/${encodeURIComponent(oldName)}/rename`, {
+    await api(keyApi(oldKey, "/rename"), {
       method: "POST",
       body: JSON.stringify({ name }),
     });
@@ -723,17 +806,18 @@ async function renameSession(oldName, name = null) {
     alert(err.message);
     return;
   }
+  const newKey = prefix + name;
   for (const p of panes) {
-    if (p.session === oldName) {
-      p.session = name;
-      p.el.querySelector(".pane-title").textContent = name;
+    if (p.session === oldKey) {
+      p.session = newKey;
+      p.el.querySelector(".pane-title").textContent = newKey;
     }
   }
-  const i = order.indexOf(oldName);
-  if (i >= 0) { order[i] = name; saveOrder(); }
-  if (seenActivity.has(oldName)) {
-    seenActivity.set(name, seenActivity.get(oldName));
-    seenActivity.delete(oldName);
+  const i = order.indexOf(oldKey);
+  if (i >= 0) { order[i] = newKey; saveOrder(); }
+  if (seenActivity.has(oldKey)) {
+    seenActivity.set(newKey, seenActivity.get(oldKey));
+    seenActivity.delete(oldKey);
   }
   updateHash();
   refreshSessions();
@@ -765,14 +849,8 @@ $("#new-session").addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = $("#new-name").value.trim();
   if (!name) return;
-  try {
-    await api("/api/sessions", { method: "POST", body: JSON.stringify({ name }) });
-    $("#new-name").value = "";
-    await refreshSessions();
-    paneFor().attach(name);
-  } catch (err) {
-    alert(err.message);
-  }
+  await createSession(name);
+  $("#new-name").value = "";
 });
 
 // --- command palette ---
@@ -791,6 +869,7 @@ const PAL_COMMANDS = [
   { name: ":kill",    hint: "kill session",           run: () => setPalMode("pick", "kill") },
   { name: ":split",   hint: "toggle split view",      run: () => { closePalette(); $("#split").click(); } },
   { name: ":sidebar", hint: "collapse/expand sidebar", run: () => { closePalette(); toggleSidebar(); } },
+  { name: ":remote",  hint: "add or remove remotes",   run: () => setPalMode("remote") },
   { name: ":mouse",   hint: "toggle tmux mouse mode", run: () => { closePalette(); paneFor()?.toggleMouse(); } },
   { name: ":font +",  hint: "bigger text",  keep: true, run: () => setFontSize(fontSize + 1) },
   { name: ":font -",  hint: "smaller text", keep: true, run: () => setFontSize(fontSize - 1) },
@@ -806,17 +885,26 @@ function fuzzy(q) {
   };
 }
 
+function creatableKey(q) {
+  const i = q.indexOf(":");
+  if (i < 0) return VALID_NAME.test(q) && !lastSessions.some((s) => s.name === q);
+  const host = q.slice(0, i), name = q.slice(i + 1);
+  return VALID_NAME.test(name) &&
+    remotes.some((r) => r.name === host && r.state === "ok") &&
+    !(remoteSessions.get(host) || []).some((s) => s.name === name);
+}
+
 function palItems() {
   const q = $("#pal-input").value.trim();
   if (pal.mode === "pick")
-    return orderedSessions().filter((s) => fuzzy(q)(s.name))
-      .map((s) => ({ kind: "session", name: s.name, s }));
+    return allSessions().filter((s) => fuzzy(q)(s.key))
+      .map((s) => ({ kind: "session", name: s.key, s }));
   if (pal.mode !== "switch") return [];
   if (q.startsWith(":"))
     return PAL_COMMANDS.filter((c) => c.name.startsWith(q)).map((c) => ({ kind: "command", ...c }));
-  const items = orderedSessions().filter((s) => fuzzy(q)(s.name))
-    .map((s) => ({ kind: "session", name: s.name, s }));
-  if (q && VALID_NAME.test(q) && !lastSessions.some((s) => s.name === q))
+  const items = allSessions().filter((s) => fuzzy(q)(s.key))
+    .map((s) => ({ kind: "session", name: s.key, s }));
+  if (q && creatableKey(q))
     items.push({ kind: "create", name: q });
   return items;
 }
@@ -866,28 +954,60 @@ async function palActivate(it) {
   }
 }
 
-async function createSession(name) {
+async function createSession(key) {
+  const i = key.indexOf(":");
+  const path = i < 0 ? "/api/sessions" : `/api/remotes/${encodeURIComponent(key.slice(0, i))}/proxy/sessions`;
   try {
-    await api("/api/sessions", { method: "POST", body: JSON.stringify({ name }) });
+    await api(path, { method: "POST", body: JSON.stringify({ name: key.slice(i + 1) }) });
   } catch (err) { alert(err.message); return; }
   closePalette();
   await refreshSessions();
-  paneFor().attach(name);
+  paneFor().attach(key);
 }
 
-async function killSession(name) {
-  try { await api(`/api/sessions/${encodeURIComponent(name)}`, { method: "DELETE" }); }
+async function killSession(key) {
+  try { await api(keyApi(key), { method: "DELETE" }); }
   catch (err) { alert(err.message); }
-  for (const p of panes) if (p.session === name) p.detach();
+  for (const p of panes) if (p.session === key) p.detach();
+  refreshSessions();
+}
+
+// ":remote ❯" one-liners: "add jack ssh jack", "add lab ssh lab.example:9000 TOKEN",
+// "add juneau url http://juneau:8300 TOKEN", "rm jack".
+async function runRemoteCommand(line) {
+  const words = line.split(/\s+/).filter(Boolean);
+  const [verb, name] = words;
+  try {
+    if (verb === "rm" && name && words.length === 2) {
+      await api(`/api/remotes/${encodeURIComponent(name)}`, { method: "DELETE" });
+    } else if (verb === "add" && words.length >= 4 && words.length <= 5) {
+      const [, , mode, target, token] = words;
+      const body = { name, mode, token: token || "" };
+      if (mode === "ssh") {
+        const m = target.match(/^(.+?)(?::(\d+))?$/);
+        body.host = m[1];
+        if (m[2]) body.remote_port = +m[2];
+      } else if (mode === "url") {
+        body.url = target;
+      } else {
+        throw new Error("mode must be ssh or url");
+      }
+      await api("/api/remotes", { method: "POST", body: JSON.stringify(body) });
+    } else {
+      throw new Error("usage: add <name> ssh <host[:port]> [token] · add <name> url <url> [token] · rm <name>");
+    }
+  } catch (err) { alert(err.message); return; }
+  closePalette();
   refreshSessions();
 }
 
 const PAL_MODES = {
   switch:  { prompt: "❯", ph: "session or :command", hint: "↑↓ move · ⏎ open · : commands · esc close" },
-  new:     { prompt: "new ❯", ph: "enter session name", hint: "⏎ create · esc back" },
+  new:     { prompt: "new ❯", ph: "session name (host:name for a remote)", hint: "⏎ create · esc back" },
   pick:    { prompt: null, ph: "which session?", hint: "↑↓ move · ⏎ select · esc back" },
   input:   { prompt: null, ph: "new name", hint: "⏎ rename · esc back" },
   confirm: { prompt: null, ph: "", hint: "y kill · n / esc back" },
+  remote:  { prompt: ":remote ❯", ph: "add <name> ssh <host[:port]> [token] · add <name> url <url> [token] · rm <name>", hint: "⏎ run · esc back" },
 };
 
 function setPalMode(mode, verb = null, arg = null) {
@@ -961,10 +1081,11 @@ $("#pal-input").addEventListener("keydown", async (e) => {
   } else if (e.key === "Enter") {
     e.preventDefault();
     const name = $("#pal-input").value.trim();
-    if (pal.mode === "new") { if (VALID_NAME.test(name)) await createSession(name); }
+    if (pal.mode === "new") { if (creatableKey(name)) await createSession(name); }
     else if (pal.mode === "input") {
       if (VALID_NAME.test(name)) { closePalette(); await renameSession(pal.arg, name); }
-    } else if (items[pal.index]) await palActivate(items[pal.index]);
+    } else if (pal.mode === "remote") { await runRemoteCommand(name); }
+    else if (items[pal.index]) await palActivate(items[pal.index]);
   } else if (e.key === "Backspace" && !$("#pal-input").value && pal.mode !== "switch") {
     e.preventDefault(); palBack();
   }
