@@ -326,7 +326,9 @@ class Pane {
       const gl = new WebglAddon.WebglAddon();
       gl.onContextLoss(() => gl.dispose());
       this.term.loadAddon(gl);
-    } catch {}
+    } catch (e) {
+      console.warn("muxdeck: WebGL unavailable, falling back to DOM renderer", e);
+    }
     // Clipboard writes need transient activation, so copy at gesture end
     // rather than on every selection change.
     mount.addEventListener("mouseup", () => copySelection(this.term));
