@@ -114,7 +114,13 @@ func New(name string) error {
 	if !ValidName(name) {
 		return ErrBadName
 	}
-	if err := run("new-session", "-d", "-s", name); err != nil {
+	args := []string{"new-session", "-d", "-s", name}
+	// Without -c the session inherits the tmux server's cwd, which is "/"
+	// when the daemon was started by the desktop app or launchd.
+	if home, err := os.UserHomeDir(); err == nil {
+		args = append(args, "-c", home)
+	}
+	if err := run(args...); err != nil {
 		return err
 	}
 	// Web-first default: wheel/touch scrolling only reaches tmux (instead of
