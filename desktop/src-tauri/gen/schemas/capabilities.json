@@ -1,0 +1,1 @@
+{"main":{"identifier":"main","description":"The main window loads the daemon's web UI from loopback; grant it notification access so agent needs-input alerts reach Notification Center.","remote":{"urls":["http://127.0.0.1:8300"]},"local":true,"windows":["main"],"permissions":["core:default","notification:default"]}}
