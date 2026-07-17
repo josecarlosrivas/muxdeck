@@ -230,6 +230,7 @@ class Pane {
       cursorBlink: true,
       scrollback: 10000,
       macOptionClickForcesSelection: true,
+      allowProposedApi: true, // Unicode11Addon's version switch needs it
       theme: { background: "#000000" },
     });
     this.fit = new FitAddon.FitAddon();
@@ -237,12 +238,25 @@ class Pane {
     this.term.loadAddon(this.fit);
     this.term.loadAddon(this.search);
     this.term.loadAddon(new WebLinksAddon.WebLinksAddon((e, uri) => window.open(uri, "_blank", "noopener")));
+    // Match tmux's modern wcwidth: with the default Unicode 6 tables,
+    // glyphs like ⏺ and ⚡ (wide since Unicode 9) disagree with tmux's
+    // layout and TUI columns drift — the "garbled box art" bug.
+    this.term.loadAddon(new Unicode11Addon.Unicode11Addon());
+    this.term.unicode.activeVersion = "11";
     this.term.parser.registerOscHandler(52, (data) => { osc52ToClipboard(data); return true; });
     this.term.onData((d) => this.send(applyCtrl(d)));
     this.term.attachCustomKeyEventHandler((e) => !(chord(e, "k") || chord(e, "f") || chord(e, "b")));
     const mount = this.el.querySelector(".pane-term");
     mount.innerHTML = "";
     this.term.open(mount);
+    // WebGL renderer (must load after open): draws box/block glyphs itself
+    // via customGlyphs, avoiding the DOM renderer's font-metric seams.
+    // Falls back to the DOM renderer wherever a context isn't available.
+    try {
+      const gl = new WebglAddon.WebglAddon();
+      gl.onContextLoss(() => gl.dispose());
+      this.term.loadAddon(gl);
+    } catch {}
     // Clipboard writes need transient activation, so copy at gesture end
     // rather than on every selection change.
     mount.addEventListener("mouseup", () => copySelection(this.term));
