@@ -39,7 +39,10 @@ body {
 }
 
 .hdr-tools { display: flex; gap: 10px; }
+.hdr-tools button { display: flex; align-items: center; padding: 2px; }
 #split.armed { color: var(--accent); }
+
+.icon { width: 16px; height: 16px; display: block; pointer-events: none; }
 
 #sidebar h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); }
 
@@ -68,6 +71,7 @@ body {
 #sessions .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #sessions .meta { color: var(--fg-dim); font-size: 11px; }
 #sessions .kill, #sessions .rename { visibility: hidden; color: var(--fg-dim); }
+#sessions .kill .icon, #sessions .rename .icon { width: 14px; height: 14px; }
 #sessions li:hover .kill, #sessions li:hover .rename { visibility: visible; }
 #sessions .kill:hover { color: var(--danger); }
 #sessions .rename:hover { color: var(--accent); }
@@ -75,13 +79,14 @@ body {
 #sessions .grip {
   visibility: hidden;
   color: var(--fg-dim);
-  font-size: 10px;
-  letter-spacing: -3px;
+  display: flex;
+  align-items: center;
   cursor: grab;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
+#sessions .grip .icon { width: 13px; height: 13px; }
 #sessions li:hover .grip { visibility: visible; }
 @media (pointer: coarse) {
   #sessions .grip, #sessions .kill, #sessions .rename { visibility: visible; }
@@ -122,8 +127,12 @@ body {
   border-radius: 4px;
   color: var(--fg);
   width: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
+#new-session button .icon { width: 14px; height: 14px; }
 #new-session button:hover { border-color: var(--accent); color: var(--accent); }
 
 #term-wrap { flex: 1; display: flex; flex-direction: column; background: #000; min-width: 0; }
@@ -192,6 +201,8 @@ body {
   padding: 3px 8px;
   cursor: pointer;
 }
+.pane-tools button { display: flex; align-items: center; }
+.pane-tools .icon, .findbar .icon { width: 13px; height: 13px; }
 .pane-tools button:hover { color: var(--fg); border-color: var(--border); }
 .pane-tools button.armed { background: var(--accent); border-color: var(--accent); color: #0b0e11; }
 .pane-tools button[hidden] { display: none; }
@@ -221,6 +232,8 @@ body {
   border-radius: 4px;
   color: var(--fg);
   padding: 0 8px;
+  display: flex;
+  align-items: center;
   cursor: pointer;
 }
 .findbar button:hover { border-color: var(--accent); }
@@ -417,3 +430,4 @@ body {
   padding: 4px 8px;
   cursor: pointer;
 }
+

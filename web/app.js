@@ -4,6 +4,31 @@ const $ = (sel) => document.querySelector(sel);
 
 const isMac = /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent);
 
+// --- icons ---
+// One stroke-based set (lucide-style paths) for all UI chrome, so nothing
+// falls back to platform emoji rendering. Sized via CSS (.icon).
+
+const ICONS = {
+  bell: '<path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M6 8a6 6 0 0 1 12 0c0 4.5 1.41 5.96 2.74 7.33A1 1 0 0 1 20 17H4a1 1 0 0 1-.74-1.67C4.59 13.96 6 12.5 6 8"/>',
+  columns: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/>',
+  pencil: '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  grip: '<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>',
+  chevronLeft: '<path d="m15 18-6-6 6-6"/>',
+  chevronRight: '<path d="m9 18 6-6-6-6"/>',
+};
+
+function icon(name) {
+  return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+}
+
+$("#notify").innerHTML = icon("bell");
+$("#split").innerHTML = icon("columns");
+$("#refresh").innerHTML = icon("refresh");
+$("#new-session button").innerHTML = icon("plus");
+
 // --- persisted prefs ---
 
 let fontSize = Math.max(9, Math.min(24, +localStorage.getItem("muxdeck-font") || 13));
@@ -140,14 +165,14 @@ class Pane {
           <button class="p-font" data-d="1" title="larger text">A+</button>
           <button class="p-find" title="find in scrollback">find</button>
           <button class="p-mouse" hidden title="tmux mouse mode: wheel/touch scrolls the session instead of the page">mouse</button>
-          <button class="p-close" title="close pane">&#10005;</button>
+          <button class="p-close" title="close pane">${icon("x")}</button>
         </span>
       </div>
       <div class="findbar" hidden>
         <input placeholder="find" spellcheck="false" autocomplete="off">
-        <button class="f-prev" title="previous match">&lsaquo;</button>
-        <button class="f-next" title="next match">&rsaquo;</button>
-        <button class="f-close" title="close">&#10005;</button>
+        <button class="f-prev" title="previous match">${icon("chevronLeft")}</button>
+        <button class="f-next" title="next match">${icon("chevronRight")}</button>
+        <button class="f-close" title="close">${icon("x")}</button>
       </div>
       <div class="pane-body">
         <div class="pane-term"></div>
@@ -460,13 +485,13 @@ function renderTmuxMissing() {
   const b = document.createElement("b");
   b.textContent = "muxdeck needs tmux";
   const p = document.createElement("p");
-  p.textContent = "Install it, then hit ↻ up top:";
+  p.textContent = "Install it, then hit refresh up top:";
   const code = document.createElement("code");
   code.textContent = cmd;
   code.title = "click to copy";
   code.addEventListener("click", () => {
     navigator.clipboard?.writeText(cmd);
-    p.textContent = "Copied. Install it, then hit ↻ up top:";
+    p.textContent = "Copied. Install it, then hit refresh up top:";
   });
   li.append(b, p, code);
   ul.appendChild(li);
@@ -510,7 +535,7 @@ async function refreshSessions() {
 
     const grip = document.createElement("span");
     grip.className = "grip";
-    grip.textContent = "⋮⋮";
+    grip.innerHTML = icon("grip");
     grip.title = "drag to reorder";
     initDrag(li, grip);
 
@@ -543,7 +568,7 @@ async function refreshSessions() {
 
     const rename = document.createElement("button");
     rename.className = "rename";
-    rename.textContent = "✎";
+    rename.innerHTML = icon("pencil");
     rename.title = `rename ${s.name}`;
     rename.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -552,7 +577,7 @@ async function refreshSessions() {
 
     const kill = document.createElement("button");
     kill.className = "kill";
-    kill.textContent = "✕";
+    kill.innerHTML = icon("x");
     kill.title = `kill ${s.name}`;
     kill.addEventListener("click", async (e) => {
       e.stopPropagation();
