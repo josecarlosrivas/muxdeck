@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/creack/pty"
@@ -49,6 +50,9 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager) *Se
 	s.mux.HandleFunc("GET /api/sessions/{name}/mouse", s.auth(s.handleMouseGet))
 	s.mux.HandleFunc("POST /api/sessions/{name}/mouse", s.auth(s.handleMouseSet))
 	s.mux.HandleFunc("GET /api/sessions/{name}/attach", s.auth(s.handleAttach))
+	s.mux.HandleFunc("GET /api/sessions/{name}/diff", s.auth(s.handleDiff))
+	s.mux.HandleFunc("GET /api/sessions/{name}/files", s.auth(s.handleFiles))
+	s.mux.HandleFunc("GET /api/sessions/{name}/file", s.auth(s.handleFile))
 	s.mux.HandleFunc("POST /api/agent/status", s.auth(s.handleAgentStatus))
 	s.mux.HandleFunc("GET /api/remotes", s.auth(s.handleRemoteList))
 	s.mux.HandleFunc("POST /api/remotes", s.auth(s.handleRemoteAdd))
@@ -332,6 +336,115 @@ type controlMsg struct {
 	Data string `json:"data"`
 	Cols uint16 `json:"cols"`
 	Rows uint16 `json:"rows"`
+}
+
+// --- viewers: git diff + file reads, anchored to a session's cwd ---
+
+// sessionCwd resolves the session's active-pane directory or writes the error.
+func sessionCwd(w http.ResponseWriter, r *http.Request) (string, bool) {
+	name := r.PathValue("name")
+	if !tmux.Has(name) {
+		http.Error(w, "no such session", http.StatusNotFound)
+		return "", false
+	}
+	cwd, err := tmux.Cwd(name)
+	if err != nil {
+		writeErr(w, err)
+		return "", false
+	}
+	return cwd, true
+}
+
+func git(cwd string, args ...string) (string, error) {
+	out, err := exec.Command("git", append([]string{"-C", cwd}, args...)...).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", errors.New(msg)
+	}
+	return string(out), nil
+}
+
+const maxViewBytes = 2 << 20
+
+func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := sessionCwd(w, r)
+	if !ok {
+		return
+	}
+	root, err := git(cwd, "rev-parse", "--show-toplevel")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a git repository: " + cwd})
+		return
+	}
+	// Working tree vs HEAD, the whole repo. --no-ext-diff keeps any
+	// configured external diff tool from hijacking the output.
+	text, err := git(cwd, "diff", "HEAD", "--no-color", "--no-ext-diff")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if len(text) > maxViewBytes {
+		text = text[:maxViewBytes] + "\n… (diff truncated)\n"
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"root": strings.TrimSpace(root), "text": text})
+}
+
+func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := sessionCwd(w, r)
+	if !ok {
+		return
+	}
+	// Tracked + untracked-but-not-ignored markdown, relative to the session
+	// cwd (ls-files scopes to the subtree it runs in). Outside a repo, fall
+	// back to the directory's own *.md entries.
+	var files []string
+	if out, err := git(cwd, "ls-files", "-co", "--exclude-standard", "--", "*.md", "*.markdown"); err == nil {
+		files = strings.Fields(strings.TrimSpace(out))
+	} else {
+		matches, _ := filepath.Glob(filepath.Join(cwd, "*.md"))
+		for _, m := range matches {
+			files = append(files, filepath.Base(m))
+		}
+	}
+	if files == nil {
+		files = []string{}
+	}
+	if len(files) > 500 {
+		files = files[:500]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"cwd": cwd, "files": files})
+}
+
+func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := sessionCwd(w, r)
+	if !ok {
+		return
+	}
+	rel := r.URL.Query().Get("path")
+	clean := filepath.Clean(rel)
+	if rel == "" || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	full := filepath.Join(cwd, clean)
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		http.Error(w, "no such file", http.StatusNotFound)
+		return
+	}
+	if info.Size() > maxViewBytes {
+		http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"path": clean, "mtime": info.ModTime().UnixMilli(), "text": string(data)})
 }
 
 func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
