@@ -31,6 +31,7 @@ type Remote struct {
 	URL        string `json:"url,omitempty"`
 	RemotePort int    `json:"remote_port,omitempty"` // remote loopback port for ssh mode
 	Token      string `json:"token,omitempty"`       // remote muxdeck token, injected by the proxy
+	Off        bool   `json:"off,omitempty"`         // soft-disconnected: registered but not polled or tunneled
 }
 
 // Status is the API-facing view of a remote; the token never leaves the file.
@@ -40,7 +41,7 @@ type Status struct {
 	Host     string `json:"host,omitempty"`
 	URL      string `json:"url,omitempty"`
 	HasToken bool   `json:"has_token"`
-	State    string `json:"state"` // "ok" | "down"
+	State    string `json:"state"` // "ok" | "down" | "off"
 	Error    string `json:"error,omitempty"`
 }
 
@@ -142,6 +143,23 @@ func (m *Manager) Delete(name string) error {
 	return fmt.Errorf("no such remote: %s", name)
 }
 
+// SetOff soft-disconnects (or reconnects) a remote: the registry entry stays,
+// but an off remote is never probed, proxied, or tunneled.
+func (m *Manager) SetOff(name string, off bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.remotes {
+		if m.remotes[i].Name == name {
+			m.remotes[i].Off = off
+			if off {
+				m.dropConn(name)
+			}
+			return m.save()
+		}
+	}
+	return fmt.Errorf("no such remote: %s", name)
+}
+
 func (m *Manager) dropConn(name string) {
 	if c := m.conns[name]; c != nil && c.cmd != nil && c.cmd.Process != nil {
 		c.cmd.Process.Kill()
@@ -176,6 +194,10 @@ func (m *Manager) List() []Status {
 	var wg sync.WaitGroup
 	for i, r := range remotes {
 		out[i] = Status{Name: r.Name, Mode: r.Mode, Host: r.Host, URL: r.URL, HasToken: r.Token != ""}
+		if r.Off {
+			out[i].State = "off"
+			continue
+		}
 		wg.Add(1)
 		go func(i int, r Remote) {
 			defer wg.Done()
@@ -221,6 +243,9 @@ func (m *Manager) ensure(name string) (*url.URL, string, error) {
 	r, c, ok := m.get(name)
 	if !ok {
 		return nil, "", fmt.Errorf("no such remote: %s", name)
+	}
+	if r.Off {
+		return nil, "", fmt.Errorf("remote is off: %s", name)
 	}
 	if r.Mode == "url" {
 		u, err := url.Parse(r.URL)

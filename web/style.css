@@ -140,6 +140,7 @@ body {
 #sessions .remote-head .rstate { display: flex; align-items: center; font-size: 11px; }
 #sessions .remote-head .rstate .icon { width: 13px; height: 13px; }
 #sessions .remote-head .rstate-down { color: var(--danger); }
+#sessions .remote-head.off { opacity: 0.45; }
 #sessions .remote-session { padding-left: 26px; }
 
 #sessions .dot {

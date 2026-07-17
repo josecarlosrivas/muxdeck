@@ -57,6 +57,7 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager) *Se
 	s.mux.HandleFunc("GET /api/remotes", s.auth(s.handleRemoteList))
 	s.mux.HandleFunc("POST /api/remotes", s.auth(s.handleRemoteAdd))
 	s.mux.HandleFunc("DELETE /api/remotes/{name}", s.auth(s.handleRemoteDelete))
+	s.mux.HandleFunc("PATCH /api/remotes/{name}", s.auth(s.handleRemotePatch))
 	s.mux.HandleFunc("/api/remotes/{name}/proxy/{rest...}", s.auth(s.handleRemoteProxy))
 	return s
 }
@@ -88,6 +89,21 @@ func (s *Server) handleRemoteAdd(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRemoteDelete(w http.ResponseWriter, r *http.Request) {
 	if err := s.remotes.Delete(r.PathValue("name")); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRemotePatch(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Off *bool `json:"off"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Off == nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.remotes.SetOff(r.PathValue("name"), *body.Off); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
