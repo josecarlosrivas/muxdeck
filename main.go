@@ -11,7 +11,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/server"
 )
 
@@ -48,8 +51,22 @@ func main() {
 		scheme = "https"
 	}
 
+	remotes, err := remote.Load(envOr("MUXDECK_REMOTES", remote.DefaultPath()))
+	if err != nil {
+		log.Fatal(err)
+	}
+	// ssh tunnels are child processes; kill them on the way out so they
+	// don't outlive the daemon across launchd/sidecar restarts.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		remotes.Shutdown()
+		os.Exit(0)
+	}()
+
 	token, generated := resolveToken(*tokenFlag, *addr, *noAuth)
-	srv := server.New(static, token, generated)
+	srv := server.New(static, token, generated, remotes)
 
 	log.Printf("muxdeck %s listening on %s", version, *addr)
 	for _, u := range urls(scheme, *addr) {

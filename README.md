@@ -185,12 +185,38 @@ token.
 | GET    | `/api/sessions/{name}/mouse`  | `{"enabled"}` — tmux mouse mode |
 | POST   | `/api/sessions/{name}/mouse`  | `{"enabled"}` → set mouse mode  |
 | GET    | `/api/sessions/{name}/attach` | WebSocket terminal bridge       |
+| GET    | `/api/remotes`                | list remotes with liveness      |
+| POST   | `/api/remotes`                | add/update a remote             |
+| DELETE | `/api/remotes/{name}`         | remove a remote                 |
+| ANY    | `/api/remotes/{name}/proxy/…` | reverse proxy to the remote API |
 
 Attach protocol: client sends JSON text frames `{"type":"input","data":"…"}`
 and `{"type":"resize","cols":N,"rows":N}`; server sends raw terminal output as
 binary frames.
 
 Session names are restricted to `[A-Za-z0-9_-]{1,64}`.
+
+## Remotes
+
+Any machine running muxdeck can appear in the sidebar as a collapsible group
+— sessions there list, attach, create, rename, and kill exactly like local
+ones, addressed as `host:name` everywhere (panes, the ⌘K switcher, the URL
+hash). Two transports:
+
+- **`url`** — the remote is directly reachable (LAN, VPN, tailnet). Its
+  token, if set, is stored locally and injected by the proxy; the browser
+  only ever authenticates against the local instance.
+- **`ssh`** — the remote binds loopback only. The local daemon maintains an
+  `ssh -N -L` tunnel using *your* ssh binary, so `~/.ssh/config`, agents,
+  and `ProxyJump` all apply and ssh itself is the authentication. Tunnels
+  start lazily, restart with backoff, and die with the daemon.
+
+Manage remotes with `:remote` in the palette (`add jack ssh jack`,
+`add lab url http://lab:8300 TOKEN`, `rm jack`) or the `/api/remotes`
+endpoints. The registry lives at `remotes.json` under the user config dir
+(override with `MUXDECK_REMOTES`), mode `0600` since it can hold remote
+tokens. Unreachable remotes show a broken-link icon with the error in the
+tooltip.
 
 ## How it works
 

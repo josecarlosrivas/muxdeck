@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/josecarlosrivas/muxdeck/internal/agent"
+	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/tmux"
 )
 
@@ -34,10 +35,11 @@ type Server struct {
 	token    string
 	foldCase bool // generated codes are matched case-insensitively, GitHub-device-auth style
 	agents   *agent.Store
+	remotes  *remote.Manager
 }
 
-func New(static fs.FS, token string, foldCase bool) *Server {
-	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore()}
+func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager) *Server {
+	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), remotes: remotes}
 	s.mux.Handle("/", http.FileServerFS(static))
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
@@ -48,10 +50,49 @@ func New(static fs.FS, token string, foldCase bool) *Server {
 	s.mux.HandleFunc("POST /api/sessions/{name}/mouse", s.auth(s.handleMouseSet))
 	s.mux.HandleFunc("GET /api/sessions/{name}/attach", s.auth(s.handleAttach))
 	s.mux.HandleFunc("POST /api/agent/status", s.auth(s.handleAgentStatus))
+	s.mux.HandleFunc("GET /api/remotes", s.auth(s.handleRemoteList))
+	s.mux.HandleFunc("POST /api/remotes", s.auth(s.handleRemoteAdd))
+	s.mux.HandleFunc("DELETE /api/remotes/{name}", s.auth(s.handleRemoteDelete))
+	s.mux.HandleFunc("/api/remotes/{name}/proxy/{rest...}", s.auth(s.handleRemoteProxy))
 	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
+
+// --- remotes ---
+
+func (s *Server) handleRemoteList(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.remotes.List())
+}
+
+func (s *Server) handleRemoteAdd(w http.ResponseWriter, r *http.Request) {
+	var body remote.Remote
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.remotes.Add(body); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, remote.ErrBadRemote) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRemoteDelete(w http.ResponseWriter, r *http.Request) {
+	if err := s.remotes.Delete(r.PathValue("name")); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRemoteProxy(w http.ResponseWriter, r *http.Request) {
+	s.remotes.Proxy(r.PathValue("name"), r.PathValue("rest"), w, r)
+}
 
 // --- auth ---
 
