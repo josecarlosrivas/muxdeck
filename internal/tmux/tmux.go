@@ -182,3 +182,24 @@ func Has(name string) bool {
 	}
 	return exec.Command(Bin, "has-session", "-t", "="+name).Run() == nil
 }
+
+// Cwd reports the current working directory of the session's active pane.
+// list-panes rather than display-message: the latter expands pane formats
+// against the attached client's context and comes back empty when the
+// caller isn't a tmux client — exactly the daemon case (seen on tmux 3.6a).
+func Cwd(name string) (string, error) {
+	if !ValidName(name) {
+		return "", ErrBadName
+	}
+	out, err := exec.Command(Bin, "list-panes", "-t", "="+name,
+		"-F", "#{pane_active}|#{pane_current_path}").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("tmux list-panes: %s", strings.TrimSpace(string(out)))
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if path, ok := strings.CutPrefix(line, "1|"); ok && path != "" {
+			return path, nil
+		}
+	}
+	return "", errors.New("could not resolve session cwd")
+}

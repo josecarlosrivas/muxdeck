@@ -185,6 +185,9 @@ token.
 | GET    | `/api/sessions/{name}/mouse`  | `{"enabled"}` — tmux mouse mode |
 | POST   | `/api/sessions/{name}/mouse`  | `{"enabled"}` → set mouse mode  |
 | GET    | `/api/sessions/{name}/attach` | WebSocket terminal bridge       |
+| GET    | `/api/sessions/{name}/diff`   | git diff (worktree vs HEAD)     |
+| GET    | `/api/sessions/{name}/files`  | markdown files under cwd        |
+| GET    | `/api/sessions/{name}/file`   | `?path=` → file content         |
 | GET    | `/api/remotes`                | list remotes with liveness      |
 | POST   | `/api/remotes`                | add/update a remote             |
 | DELETE | `/api/remotes/{name}`         | remove a remote                 |
@@ -195,6 +198,21 @@ and `{"type":"resize","cols":N,"rows":N}`; server sends raw terminal output as
 binary frames.
 
 Session names are restricted to `[A-Za-z0-9_-]{1,64}`.
+
+## Viewers
+
+The split layout doubles as a review surface. With a session focused, open
+the palette (⌘K):
+
+- **`:diff`** — the session's repo diff (working tree vs `HEAD`) rendered in
+  the opposite pane, anchored to the pane's current directory. Refreshes
+  every few seconds and on the ↻ button.
+- **`:md`** — pick a markdown file (tracked or untracked, relative to the
+  session's directory) and preview it rendered. Output is sanitized with
+  DOMPurify, so a cloned repo's README can't run script in the UI.
+
+Both work on remote sessions too — the endpoints are session-scoped and ride
+the remote proxy (the remote must run a version that has them).
 
 ## Remotes
 

@@ -170,6 +170,7 @@ class Pane {
           <button class="p-font" data-d="1" title="larger text">A+</button>
           <button class="p-find" title="find in scrollback">find</button>
           <button class="p-mouse" hidden title="tmux mouse mode: wheel/touch scrolls the session instead of the page">mouse</button>
+          <button class="p-refresh" hidden title="refresh view">${icon("refresh")}</button>
           <button class="p-close" title="close pane">${icon("x")}</button>
         </span>
       </div>
@@ -181,6 +182,7 @@ class Pane {
       </div>
       <div class="pane-body">
         <div class="pane-term"></div>
+        <div class="pane-view" hidden></div>
         <div class="pane-msg">select or create a session</div>
       </div>`;
 
@@ -188,6 +190,9 @@ class Pane {
     this.el.querySelector(".p-close").addEventListener("click", () => closePane(this));
     this.el.querySelector(".p-mouse").addEventListener("click", () => this.toggleMouse());
     this.el.querySelector(".p-find").addEventListener("click", () => this.toggleFind());
+    this.el.querySelector(".p-refresh").addEventListener("click", () => this.refreshView());
+    this.view = null;
+    this.viewTimer = null;
     for (const b of this.el.querySelectorAll(".p-font")) {
       b.addEventListener("click", () => setFontSize(fontSize + +b.dataset.d));
     }
@@ -214,6 +219,7 @@ class Pane {
   }
 
   attach(name) {
+    if (this.view) this.closeView();
     if (this.session) this.detach(true);
     this.session = name;
     this.el.querySelector(".pane-title").textContent = name;
@@ -222,6 +228,68 @@ class Pane {
     this.connect();
     this.refreshMouse();
     updateHash();
+  }
+
+  // --- viewer mode: the pane shows a rendered document instead of a
+  // terminal. view = {type: "diff"} or {type: "md", path}, plus key: the
+  // session whose cwd anchors the content. Polls for changes while visible.
+
+  openView(view) {
+    if (this.session) this.detach(true);
+    this.view = view;
+    this.viewStamp = null;
+    this.msg("");
+    this.el.querySelector(".pane-term").hidden = true;
+    this.el.querySelector(".pane-view").hidden = false;
+    this.el.querySelector(".p-refresh").hidden = false;
+    this.el.querySelector(".pane-title").textContent =
+      view.type === "diff" ? `diff · ${view.key}` : `${view.path} · ${view.key}`;
+    this.refreshView();
+    clearInterval(this.viewTimer);
+    this.viewTimer = setInterval(() => {
+      if (!document.hidden) this.refreshView();
+    }, 3000);
+    updateHash();
+  }
+
+  closeView() {
+    clearInterval(this.viewTimer);
+    this.viewTimer = null;
+    this.view = null;
+    this.viewStamp = null;
+    const v = this.el.querySelector(".pane-view");
+    v.hidden = true;
+    v.innerHTML = "";
+    this.el.querySelector(".pane-term").hidden = false;
+    this.el.querySelector(".p-refresh").hidden = true;
+    this.el.querySelector(".pane-title").textContent = "no session";
+    this.msg("select or create a session");
+  }
+
+  async refreshView() {
+    if (!this.view) return;
+    const { type, key, path } = this.view;
+    const box = this.el.querySelector(".pane-view");
+    try {
+      if (type === "diff") {
+        const { root, text } = await api(keyApi(key, "/diff"));
+        const stamp = `${root}\n${text}`;
+        if (stamp === this.viewStamp) return;
+        this.viewStamp = stamp;
+        box.className = "pane-view diff-view";
+        box.innerHTML = "";
+        box.appendChild(renderDiff(root, text));
+      } else {
+        const { text } = await api(keyApi(key, `/file?path=${encodeURIComponent(path)}`));
+        if (text === this.viewStamp) return;
+        this.viewStamp = text;
+        box.innerHTML = DOMPurify.sanitize(marked.parse(text));
+        box.className = "pane-view md-view";
+      }
+    } catch (err) {
+      box.className = "pane-view";
+      box.textContent = err.message;
+    }
   }
 
   makeTerm() {
@@ -300,8 +368,12 @@ class Pane {
   async scheduleReconnect() {
     const name = this.session;
     try {
-      const sessions = await api("/api/sessions");
-      if (!sessions.some((s) => s.name === name)) {
+      // List the host the session actually lives on — checking a remote
+      // key against the local list would declare it dead on any blip.
+      const i = name.indexOf(":");
+      const listPath = i < 0 ? "/api/sessions" : `/api/remotes/${encodeURIComponent(name.slice(0, i))}/proxy/sessions`;
+      const sessions = await api(listPath);
+      if (!sessions.some((s) => s.name === name.slice(i + 1))) {
         this.detach();
         this.msg("session ended");
         refreshSessions();
@@ -420,6 +492,7 @@ function addPane() {
 }
 
 function closePane(p) {
+  if (p.view) p.closeView();
   if (panes.length === 1) {
     p.detach();
     return;
@@ -870,6 +943,8 @@ const PAL_COMMANDS = [
   { name: ":split",   hint: "toggle split view",      run: () => { closePalette(); $("#split").click(); } },
   { name: ":sidebar", hint: "collapse/expand sidebar", run: () => { closePalette(); toggleSidebar(); } },
   { name: ":remote",  hint: "add or remove remotes",   run: () => setPalMode("remote") },
+  { name: ":diff",    hint: "git diff of session cwd", run: () => { closePalette(); openDiffView(); } },
+  { name: ":md",      hint: "preview a markdown file", run: () => openMdPicker() },
   { name: ":mouse",   hint: "toggle tmux mouse mode", run: () => { closePalette(); paneFor()?.toggleMouse(); } },
   { name: ":font +",  hint: "bigger text",  keep: true, run: () => setFontSize(fontSize + 1) },
   { name: ":font -",  hint: "smaller text", keep: true, run: () => setFontSize(fontSize - 1) },
@@ -896,6 +971,8 @@ function creatableKey(q) {
 
 function palItems() {
   const q = $("#pal-input").value.trim();
+  if (pal.mode === "mdpick")
+    return (pal.files || []).filter(fuzzy(q)).map((f) => ({ kind: "file", name: f }));
   if (pal.mode === "pick")
     return allSessions().filter((s) => fuzzy(q)(s.key))
       .map((s) => ({ kind: "session", name: s.key, s }));
@@ -928,6 +1005,9 @@ function renderPalette() {
       label.textContent = it.name;
       label.className = "cmd";
       right.textContent = it.hint;
+    } else if (it.kind === "file") {
+      label.textContent = it.name;
+      right.textContent = "markdown";
     } else {
       label.textContent = `+ create "${it.name}"`;
       label.className = "cmd";
@@ -949,6 +1029,10 @@ async function palActivate(it) {
   } else if (it.kind === "command") {
     it.run();
     if (it.keep) renderPalette();
+  } else if (it.kind === "file") {
+    const key = pal.arg;
+    closePalette();
+    viewerPane().openView({ type: "md", key, path: it.name });
   } else {
     await createSession(it.name);
   }
@@ -970,6 +1054,62 @@ async function killSession(key) {
   catch (err) { alert(err.message); }
   for (const p of panes) if (p.session === key) p.detach();
   refreshSessions();
+}
+
+// --- viewers ---
+
+// Unified-diff text → DOM: file headers, hunk markers, +/- line coloring.
+// Text nodes only, so diff content can't inject markup.
+function renderDiff(root, text) {
+  const frag = document.createDocumentFragment();
+  const head = document.createElement("div");
+  head.className = "d-root";
+  head.textContent = text.trim() ? root : `${root} — working tree clean`;
+  frag.appendChild(head);
+  if (!text.trim()) return frag;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("index ") || line.startsWith("+++") || line.startsWith("---")) continue;
+    const div = document.createElement("div");
+    if (line.startsWith("diff --git")) {
+      div.className = "d-file";
+      div.textContent = line.replace(/^diff --git a\/(.*) b\/.*$/, "$1");
+    } else if (line.startsWith("@@")) {
+      div.className = "d-hunk";
+      div.textContent = line;
+    } else {
+      div.className = line.startsWith("+") ? "d-add" : line.startsWith("-") ? "d-del" : "d-ctx";
+      div.textContent = line || " ";
+    }
+    frag.appendChild(div);
+  }
+  return frag;
+}
+
+// The viewer opens opposite the focused terminal: split first if needed.
+function viewerPane() {
+  const src = paneFor();
+  if (panes.length === 1) addPane();
+  const target = panes.find((p) => p !== src) || panes[panes.length - 1];
+  setFocus(src);
+  return target;
+}
+
+function openDiffView() {
+  const key = paneFor()?.session || allSessions()[0]?.key;
+  if (!key) { alert("attach a session first"); return; }
+  viewerPane().openView({ type: "diff", key });
+}
+
+async function openMdPicker() {
+  const key = paneFor()?.session || allSessions()[0]?.key;
+  if (!key) { alert("attach a session first"); return; }
+  let files;
+  try { ({ files } = await api(keyApi(key, "/files"))); }
+  catch (err) { alert(err.message); return; }
+  if (!files.length) { alert("no markdown files in the session's directory"); return; }
+  setPalMode("mdpick", null, key);
+  pal.files = files;
+  renderPalette();
 }
 
 // ":remote ❯" one-liners: "add jack ssh jack", "add lab ssh lab.example:9000 TOKEN",
@@ -1008,6 +1148,7 @@ const PAL_MODES = {
   input:   { prompt: null, ph: "new name", hint: "⏎ rename · esc back" },
   confirm: { prompt: null, ph: "", hint: "y kill · n / esc back" },
   remote:  { prompt: ":remote ❯", ph: "add <name> ssh <host[:port]> [token] · add <name> url <url> [token] · rm <name>", hint: "⏎ run · esc back" },
+  mdpick:  { prompt: ":md ❯", ph: "which file?", hint: "↑↓ move · ⏎ preview · esc back" },
 };
 
 function setPalMode(mode, verb = null, arg = null) {
