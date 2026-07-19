@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/server"
 )
@@ -57,16 +58,18 @@ func main() {
 	}
 	// ssh tunnels are child processes; kill them on the way out so they
 	// don't outlive the daemon across launchd/sidecar restarts.
+	mushruns := mushrun.New(os.Getenv("MUXDECK_MUSH_BIN"))
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
 		remotes.Shutdown()
+		mushruns.Shutdown()
 		os.Exit(0)
 	}()
 
 	token, generated := resolveToken(*tokenFlag, *addr, *noAuth)
-	srv := server.New(static, token, generated, remotes)
+	srv := server.New(static, token, generated, remotes, mushruns)
 
 	log.Printf("muxdeck %s listening on %s", version, *addr)
 	for _, u := range urls(scheme, *addr) {
