@@ -36,3 +36,12 @@ reconnects the stream; the full run replays from the daemon's ring buffer
 States: `running`, `awaiting_approval`, `done`, `failed`, `interrupted`.
 Runs do not survive daemon restarts. Frames muxdeck adds to the stream (not
 protocol events): `_exit {state}`, `_trimmed`, `_error {error}`.
+
+## Engine credentials
+
+Provider keys can live in `mush.env` (KEY=VALUE lines, `#` comments) in the
+muxdeck config dir — the same directory as `remotes.json`. Spawned engines get
+these on top of the daemon's environment, and the file is re-read per run.
+This exists because daemons run under launchd/systemd with a bare environment:
+shell rc files never apply. Per-repo `.mush/.env` still works and wins for
+repo-specific configuration.

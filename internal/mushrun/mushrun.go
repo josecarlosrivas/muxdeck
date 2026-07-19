@@ -14,6 +14,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -92,6 +94,7 @@ func (m *Manager) Start(task, dir string) (*Run, error) {
 
 	cmd := exec.Command(m.bin, "stdio", "-approve", "ask")
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), engineEnv()...)
 	// The engine's stderr is its only diagnostic channel — a missing provider
 	// key, a bad settings file — so keep the tail and surface it when the run
 	// fails, instead of a bare "run failed".
@@ -162,6 +165,30 @@ func (t *tail) String() string {
 func mustRaw(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+// engineEnv reads KEY=VALUE lines from mush.env in the muxdeck config dir —
+// provider keys for spawned engines. Daemons run under launchd/systemd with a
+// bare environment and no shell rc files, so credentials need a deliberate,
+// muxdeck-owned home. Re-read per start: edits apply without a daemon restart.
+func engineEnv() []string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "muxdeck", "mush.env"))
+	if err != nil {
+		return nil
+	}
+	var env []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		env = append(env, line)
+	}
+	return env
 }
 
 // ingest buffers a frame, updates the run's state machine, and fans out.
