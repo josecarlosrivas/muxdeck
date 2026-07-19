@@ -280,7 +280,8 @@ class Pane {
     v.hidden = false;
     v.className = "pane-view mush-view";
     this.el.querySelector(".p-refresh").hidden = false;
-    this.el.querySelector(".pane-title").textContent = `mush · ${run.task.slice(0, 60)}`;
+    this.el.querySelector(".pane-title").textContent =
+      `mush${run.model ? " · " + run.model : ""} · ${run.task.slice(0, 60)}`;
     this.msg("");
     this.connectMush();
   }
@@ -1198,7 +1199,7 @@ const PAL_MODES = {
   confirm: { prompt: null, ph: "", hint: "y kill · n / esc back" },
   remote:  { prompt: ":remote ❯", ph: "add <name> ssh <host[:port]> [token] · add <name> url <url> [token] · rm <name>", hint: "⏎ run · esc back" },
   mdpick:  { prompt: ":md ❯", ph: "which file?", hint: "↑↓ move · ⏎ preview · esc back" },
-  mush:    { prompt: ":mush ❯", ph: "task for the agent (runs in the focused session's cwd)", hint: "⏎ run · esc back" },
+  mush:    { prompt: ":mush ❯", ph: "[-m model] task (runs in the focused session's cwd)", hint: "⏎ run · esc back" },
 };
 
 function setPalMode(mode, verb = null, arg = null) {
@@ -1374,15 +1375,19 @@ function mushApi(host, rest = "") {
   return `/api/remotes/${encodeURIComponent(host)}/proxy/mush/runs${rest}`;
 }
 
-async function runMushCommand(task) {
-  if (!task) return;
+async function runMushCommand(input) {
+  if (!input) return;
+  // "-m <model>" prefix overrides the engine's default model for this run.
+  let task = input, model = "";
+  const m = input.match(/^-m(?:odel)?\s+(\S+)\s+(.+)$/);
+  if (m) { model = m[1]; task = m[2]; }
   const key = paneFor()?.session;
   if (!key) { alert("focus a session first — the run uses its working directory"); return; }
   const i = key.indexOf(":");
   const host = i < 0 ? "" : key.slice(0, i);
   const session = i < 0 ? key : key.slice(i + 1);
   try {
-    const run = await api(mushApi(host), { method: "POST", body: JSON.stringify({ task, session }) });
+    const run = await api(mushApi(host), { method: "POST", body: JSON.stringify({ task, session, model }) });
     closePalette();
     viewerPane().openMush(host, run);
   } catch (err) { alert(err.message); }

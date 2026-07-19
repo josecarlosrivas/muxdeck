@@ -37,6 +37,7 @@ type Info struct {
 	ID        string    `json:"id"`
 	Task      string    `json:"task"`
 	Dir       string    `json:"dir"`
+	Model     string    `json:"model,omitempty"`
 	State     string    `json:"state"` // running | awaiting_approval | done | failed | interrupted
 	Steps     int       `json:"steps"`
 	StartedAt time.Time `json:"started_at"`
@@ -48,6 +49,7 @@ type Run struct {
 	id        string
 	task      string
 	dir       string
+	model     string
 	startedAt time.Time
 
 	mu       sync.Mutex
@@ -81,10 +83,29 @@ func New(bin string) *Manager {
 
 func (m *Manager) Available() bool { return m.bin != "" }
 
+// Models reports the model ids offered for run configuration — the
+// MUXDECK_MUSH_MODELS line (comma-separated) in mush.env. Purely advisory:
+// any model string is accepted at start; this feeds UI completion.
+func (m *Manager) Models() []string {
+	for _, kv := range engineEnv() {
+		if v, ok := strings.CutPrefix(kv, "MUXDECK_MUSH_MODELS="); ok {
+			var out []string
+			for _, id := range strings.Split(v, ",") {
+				if id = strings.TrimSpace(id); id != "" {
+					out = append(out, id)
+				}
+			}
+			return out
+		}
+	}
+	return nil
+}
+
 // Start spawns an engine in dir and submits task as the first turn. The run's
 // approval policy is ask: every write pauses for an explicit decision from a
 // viewer (design decision 2026-07-18 — remote-started runs never default open).
-func (m *Manager) Start(task, dir string) (*Run, error) {
+// A non-empty model overrides the engine's default for this run.
+func (m *Manager) Start(task, dir, model string) (*Run, error) {
 	if !m.Available() {
 		return nil, errors.New("no mush binary found")
 	}
@@ -92,7 +113,11 @@ func (m *Manager) Start(task, dir string) (*Run, error) {
 		return nil, fmt.Errorf("not a directory: %s", dir)
 	}
 
-	cmd := exec.Command(m.bin, "stdio", "-approve", "ask")
+	args := []string{"stdio", "-approve", "ask"}
+	if model != "" {
+		args = append(args, "-model", model)
+	}
+	cmd := exec.Command(m.bin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), engineEnv()...)
 	// The engine's stderr is its only diagnostic channel — a missing provider
@@ -116,7 +141,7 @@ func (m *Manager) Start(task, dir string) (*Run, error) {
 	m.seq++
 	id := fmt.Sprintf("r%d", m.seq)
 	run := &Run{
-		id: id, task: task, dir: dir, startedAt: time.Now(),
+		id: id, task: task, dir: dir, model: model, startedAt: time.Now(),
 		state: "running", subs: map[subscriber]bool{},
 		stdin: stdin, proc: cmd.Process,
 	}
@@ -324,7 +349,7 @@ func (r *Run) terminalLocked() bool {
 func (r *Run) Info() Info {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return Info{ID: r.id, Task: r.task, Dir: r.dir, State: r.state, Steps: r.steps, StartedAt: r.startedAt}
+	return Info{ID: r.id, Task: r.task, Dir: r.dir, Model: r.model, State: r.state, Steps: r.steps, StartedAt: r.startedAt}
 }
 
 // Stop interrupts the run: protocol interrupt first, SIGTERM shortly after if

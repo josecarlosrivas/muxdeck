@@ -18,7 +18,8 @@ target repo's `.mush/settings.json`; muxdeck always starts runs with
 ## Use
 
 Focus a session whose working directory is the repo you want the agent in,
-then `⌘K` → `:mush` → type the task. The run opens in the opposite pane:
+then `⌘K` → `:mush` → type the task. A `-m <model>` prefix overrides the
+engine's default model for that run (`:mush -m some-model fix the tests`). The run opens in the opposite pane:
 streamed text, collapsible reasoning, tool cards, verification verdicts, and —
 when the engine pauses on a risky action — an approve/deny card. The pane's ↻
 reconnects the stream; the full run replays from the daemon's ring buffer
@@ -28,7 +29,9 @@ reconnects the stream; the full run replays from the daemon's ring buffer
 
 - `GET /api/mush/runs` — `{available, runs: [{id, task, dir, state, steps, started_at}]}`
 - `POST /api/mush/runs` — `{task, session}` (working dir = the session's
-  active pane) or `{task, dir}`
+  active pane) or `{task, dir}`; optional `model`
+- `GET /api/mush/runs` also reports `models`: the advisory id list from a
+  `MUXDECK_MUSH_MODELS` line (comma-separated) in `mush.env`, for UI completion
 - `GET /api/mush/runs/{id}/stream` — WebSocket: replay + live protocol events;
   send `approval_response` / `user_turn` / `interrupt` frames back
 - `DELETE /api/mush/runs/{id}` — interrupt, then terminate
