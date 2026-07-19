@@ -1494,7 +1494,11 @@ function mushRenderer(box, send) {
         push(el("div", "m-done", `done · ${d.steps ?? "?"} steps${d.text ? " — " + d.text : ""}`));
         break;
       case "_exit":
-        if (d.state !== "done") { approvals.innerHTML = ""; push(el("div", "m-exit", `run ${d.state}`)); }
+        if (d.state !== "done") {
+          approvals.innerHTML = "";
+          push(el("div", "m-exit", `run ${d.state}`));
+          if (d.error) push(el("pre", "m-exit-err", d.error.trim()));
+        }
         break;
       case "_error":
         note(env.error || "command error");

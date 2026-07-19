@@ -92,7 +92,11 @@ func (m *Manager) Start(task, dir string) (*Run, error) {
 
 	cmd := exec.Command(m.bin, "stdio", "-approve", "ask")
 	cmd.Dir = dir
-	cmd.Stderr = io.Discard
+	// The engine's stderr is its only diagnostic channel — a missing provider
+	// key, a bad settings file — so keep the tail and surface it when the run
+	// fails, instead of a bare "run failed".
+	stderr := &tail{}
+	cmd.Stderr = stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -126,10 +130,33 @@ func (m *Manager) Start(task, dir string) (*Run, error) {
 			frame := append([]byte(nil), sc.Bytes()...)
 			run.ingest(frame)
 		}
-		err := cmd.Wait()
-		run.finish(err)
+		cmd.Wait()
+		run.finish(stderr.String())
 	}()
 	return run, nil
+}
+
+// tail keeps the last chunk of a stream — enough of the engine's stderr to
+// explain a failure without holding a whole session's diagnostics.
+type tail struct {
+	mu sync.Mutex
+	b  []byte
+}
+
+func (t *tail) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.b = append(t.b, p...)
+	if len(t.b) > 2048 {
+		t.b = t.b[len(t.b)-2048:]
+	}
+	return len(p), nil
+}
+
+func (t *tail) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return string(t.b)
 }
 
 func mustRaw(v any) json.RawMessage {
@@ -180,19 +207,22 @@ func (r *Run) ingest(frame []byte) {
 
 // finish marks the run's terminal state after the engine exits and closes all
 // subscriber channels. A synthetic _exit frame tells viewers why the stream
-// ended; it is muxdeck-local, not a protocol event.
-func (r *Run) finish(err error) {
+// ended; it is muxdeck-local, not a protocol event. stderr rides along on
+// failure so the viewer sees the engine's own explanation.
+func (r *Run) finish(stderr string) {
 	r.mu.Lock()
 	switch {
 	case r.state == "done":
 	case r.stopping:
 		r.state = "interrupted"
-	case err != nil:
-		r.state = "failed"
 	default:
 		r.state = "failed"
 	}
-	exit, _ := json.Marshal(envelope{Type: "_exit", Data: mustRaw(map[string]string{"state": r.state})})
+	data := map[string]string{"state": r.state}
+	if r.state == "failed" && stderr != "" {
+		data["error"] = stderr
+	}
+	exit, _ := json.Marshal(envelope{Type: "_exit", Data: mustRaw(data)})
 	r.buf = append(r.buf, exit)
 	r.bufBytes += len(exit)
 	for sub := range r.subs {
