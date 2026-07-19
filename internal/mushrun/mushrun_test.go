@@ -36,7 +36,7 @@ func frames(t *testing.T, replay [][]byte) []string {
 
 func TestRunApprovalFlow(t *testing.T) {
 	m := New(fakeBin)
-	run, err := m.Start("do the thing", t.TempDir())
+	run, err := m.Start("do the thing", t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestRunApprovalFlow(t *testing.T) {
 
 func TestRunRejectsNonCommands(t *testing.T) {
 	m := New(fakeBin)
-	run, err := m.Start("task", t.TempDir())
+	run, err := m.Start("task", t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestRunRejectsNonCommands(t *testing.T) {
 
 func TestStartRejectsBadDir(t *testing.T) {
 	m := New(fakeBin)
-	if _, err := m.Start("task", "/definitely/not/a/dir"); err == nil {
+	if _, err := m.Start("task", "/definitely/not/a/dir", ""); err == nil {
 		t.Fatal("bad dir accepted")
 	}
 }
@@ -99,7 +99,7 @@ func TestStartRejectsBadDir(t *testing.T) {
 func TestManagerUnavailable(t *testing.T) {
 	m := New("/no/such/binary/anywhere")
 	// LookPath is skipped for explicit paths; Start should still fail cleanly.
-	if _, err := m.Start("task", t.TempDir()); err == nil {
+	if _, err := m.Start("task", t.TempDir(), ""); err == nil {
 		t.Fatal("start succeeded with missing binary")
 	}
 }

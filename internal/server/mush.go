@@ -13,6 +13,7 @@ import (
 func (s *Server) handleMushList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"available": s.mushruns.Available(),
+		"models":    s.mushruns.Models(),
 		"runs":      s.mushruns.List(),
 	})
 }
@@ -26,6 +27,7 @@ func (s *Server) handleMushStart(w http.ResponseWriter, r *http.Request) {
 		Task    string `json:"task"`
 		Session string `json:"session"`
 		Dir     string `json:"dir"`
+		Model   string `json:"model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Task == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -43,7 +45,7 @@ func (s *Server) handleMushStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "need session or dir", http.StatusBadRequest)
 		return
 	}
-	run, err := s.mushruns.Start(body.Task, dir)
+	run, err := s.mushruns.Start(body.Task, dir, body.Model)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
