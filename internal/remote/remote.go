@@ -46,11 +46,11 @@ type Status struct {
 }
 
 type conn struct {
-	mu       sync.Mutex
-	base     *url.URL
-	cmd      *exec.Cmd
-	lastErr  string
-	lastTry  time.Time
+	mu      sync.Mutex
+	base    *url.URL
+	cmd     *exec.Cmd
+	lastErr string
+	lastTry time.Time
 }
 
 type Manager struct {

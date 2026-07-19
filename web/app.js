@@ -255,6 +255,7 @@ class Pane {
   closeView() {
     clearInterval(this.viewTimer);
     this.viewTimer = null;
+    if (this.mushWS) { this.mushWS.onclose = null; this.mushWS.close(); this.mushWS = null; }
     this.view = null;
     this.viewStamp = null;
     const v = this.el.querySelector(".pane-view");
@@ -266,8 +267,44 @@ class Pane {
     this.msg("select or create a session");
   }
 
+  // --- mush run pane: a live protocol client. Unlike the poll-based viewers,
+  // this streams the run's events over a websocket and can answer approval
+  // requests. view = {type: "mush", host, runId, task}.
+
+  openMush(host, run) {
+    if (this.session) this.detach(true);
+    if (this.view) this.closeView();
+    this.view = { type: "mush", host, runId: run.id, task: run.task };
+    this.el.querySelector(".pane-term").hidden = true;
+    const v = this.el.querySelector(".pane-view");
+    v.hidden = false;
+    v.className = "pane-view mush-view";
+    this.el.querySelector(".p-refresh").hidden = false;
+    this.el.querySelector(".pane-title").textContent = `mush · ${run.task.slice(0, 60)}`;
+    this.msg("");
+    this.connectMush();
+  }
+
+  connectMush() {
+    if (this.mushWS) { this.mushWS.onclose = null; this.mushWS.close(); }
+    const { host, runId } = this.view;
+    const box = this.el.querySelector(".pane-view");
+    box.innerHTML = "";
+    const r = mushRenderer(box, (frame) => this.mushWS?.send(JSON.stringify(frame)));
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${location.host}${mushApi(host, `/${encodeURIComponent(runId)}/stream`)}`);
+    this.mushWS = ws;
+    ws.onmessage = (e) => {
+      let env;
+      try { env = JSON.parse(e.data); } catch { return; }
+      r.render(env);
+    };
+    ws.onclose = () => r.note("stream disconnected — ↻ to reconnect");
+  }
+
   async refreshView() {
     if (!this.view) return;
+    if (this.view.type === "mush") { this.connectMush(); return; }
     const { type, key, path } = this.view;
     const box = this.el.querySelector(".pane-view");
     try {
@@ -950,6 +987,7 @@ const PAL_COMMANDS = [
   { name: ":sidebar", hint: "collapse/expand sidebar", run: () => { closePalette(); toggleSidebar(); } },
   { name: ":remote",  hint: "add or remove remotes",   run: () => setPalMode("remote") },
   { name: ":diff",    hint: "git diff of session cwd", run: () => { closePalette(); openDiffView(); } },
+  { name: ":mush",    hint: "run an agent task here",  run: () => setPalMode("mush") },
   { name: ":md",      hint: "preview a markdown file", run: () => openMdPicker() },
   { name: ":mouse",   hint: "toggle tmux mouse mode", run: () => { closePalette(); paneFor()?.toggleMouse(); } },
   { name: ":font +",  hint: "bigger text",  keep: true, run: () => setFontSize(fontSize + 1) },
@@ -1160,6 +1198,7 @@ const PAL_MODES = {
   confirm: { prompt: null, ph: "", hint: "y kill · n / esc back" },
   remote:  { prompt: ":remote ❯", ph: "add <name> ssh <host[:port]> [token] · add <name> url <url> [token] · rm <name>", hint: "⏎ run · esc back" },
   mdpick:  { prompt: ":md ❯", ph: "which file?", hint: "↑↓ move · ⏎ preview · esc back" },
+  mush:    { prompt: ":mush ❯", ph: "task for the agent (runs in the focused session's cwd)", hint: "⏎ run · esc back" },
 };
 
 function setPalMode(mode, verb = null, arg = null) {
@@ -1237,6 +1276,7 @@ $("#pal-input").addEventListener("keydown", async (e) => {
     else if (pal.mode === "input") {
       if (VALID_NAME.test(name)) { closePalette(); await renameSession(pal.arg, name); }
     } else if (pal.mode === "remote") { await runRemoteCommand(name); }
+    else if (pal.mode === "mush") { await runMushCommand(name); }
     else if (items[pal.index]) await palActivate(items[pal.index]);
   } else if (e.key === "Backspace" && !$("#pal-input").value && pal.mode !== "switch") {
     e.preventDefault(); palBack();
@@ -1326,3 +1366,146 @@ document.addEventListener("visibilitychange", () => {
 });
 refreshSessions().then(attachFromHash);
 setInterval(() => { if (!document.hidden) refreshSessions(); }, 10000);
+
+// --- mush runs: muxdeck as a front-end of the mush agent protocol ---
+
+function mushApi(host, rest = "") {
+  if (!host) return `/api/mush/runs${rest}`;
+  return `/api/remotes/${encodeURIComponent(host)}/proxy/mush/runs${rest}`;
+}
+
+async function runMushCommand(task) {
+  if (!task) return;
+  const key = paneFor()?.session;
+  if (!key) { alert("focus a session first — the run uses its working directory"); return; }
+  const i = key.indexOf(":");
+  const host = i < 0 ? "" : key.slice(0, i);
+  const session = i < 0 ? key : key.slice(i + 1);
+  try {
+    const run = await api(mushApi(host), { method: "POST", body: JSON.stringify({ task, session }) });
+    closePalette();
+    viewerPane().openMush(host, run);
+  } catch (err) { alert(err.message); }
+}
+
+// mushRenderer builds the event-stream DOM incrementally. All event payloads
+// land as text nodes — engine output is untrusted. send() carries protocol
+// commands (approval answers) back over the run's websocket.
+function mushRenderer(box, send) {
+  const stream = document.createElement("div");
+  stream.className = "m-stream";
+  const approvals = document.createElement("div");
+  approvals.className = "m-approvals";
+  box.append(stream, approvals);
+
+  let textBlock = null, thinkBlock = null, lastTool = null;
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const push = (n) => {
+    const follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+    stream.appendChild(n);
+    if (follow) box.scrollTop = box.scrollHeight;
+  };
+  const breakBlocks = () => { textBlock = null; thinkBlock = null; };
+  const fmtArgs = (args) => {
+    let s = JSON.stringify(args ?? {}, null, 1);
+    if (s.length > 2048) s = s.slice(0, 2048) + " …";
+    return s;
+  };
+
+  function render(env) {
+    const d = env.data || {};
+    switch (env.type) {
+      case "run_started":
+        push(el("div", "m-task", d.task || ""));
+        break;
+      case "step_started":
+        breakBlocks(); lastTool = null;
+        push(el("div", "m-step", `step ${d.step} · ${d.model || ""}`));
+        break;
+      case "thinking": {
+        if (!thinkBlock) {
+          const det = el("details", "m-think");
+          det.appendChild(el("summary", null, "thinking"));
+          thinkBlock = el("div");
+          det.appendChild(thinkBlock);
+          push(det);
+        }
+        thinkBlock.textContent += d.delta || "";
+        break;
+      }
+      case "assistant_text":
+        if (!textBlock) { textBlock = el("div", "m-text"); push(textBlock); }
+        textBlock.textContent += d.delta || "";
+        break;
+      case "tool_called": {
+        breakBlocks();
+        const card = el("div", "m-tool");
+        card.appendChild(el("div", "m-tool-name", d.name || "tool"));
+        card.appendChild(el("pre", "m-tool-args", fmtArgs(d.args)));
+        lastTool = card;
+        push(card);
+        break;
+      }
+      case "tool_result": {
+        const home = lastTool || stream;
+        const det = el("details", "m-result" + (d.is_error ? " err" : ""));
+        det.appendChild(el("summary", null, d.is_error ? "result · error" : "result"));
+        let content = d.content || "";
+        if (content.length > 8192) content = content.slice(0, 8192) + "\n…";
+        det.appendChild(el("pre", null, content));
+        home.appendChild(det);
+        break;
+      }
+      case "escalated":
+        push(el("div", "m-escalated", `↑ escalated to ${d.to || "?"}`));
+        break;
+      case "approval_requested": {
+        breakBlocks();
+        const card = el("div", "m-approve" + (d.risk === "destructive" ? " danger" : ""));
+        card.appendChild(el("div", "m-approve-head", `${d.risk || "write"} · ${d.name || "tool"}`));
+        card.appendChild(el("pre", "m-tool-args", fmtArgs(d.args)));
+        const row = el("div", "m-approve-row");
+        const yes = el("button", "m-yes", "approve");
+        const no = el("button", "m-no", "deny");
+        const answer = (approved) => {
+          send({ type: "approval_response", data: { approved } });
+          card.remove();
+          push(el("div", "m-audit", `${approved ? "approved" : "denied"} · ${d.name}`));
+        };
+        yes.addEventListener("click", () => answer(true));
+        no.addEventListener("click", () => answer(false));
+        row.append(yes, no);
+        card.appendChild(row);
+        approvals.appendChild(card);
+        break;
+      }
+      case "verdict_reached":
+        breakBlocks();
+        push(el("div", `m-verdict ${d.verdict}`, `verdict: ${d.verdict}${d.feedback ? " — " + d.feedback : ""}`));
+        break;
+      case "done":
+        breakBlocks();
+        approvals.innerHTML = "";
+        push(el("div", "m-done", `done · ${d.steps ?? "?"} steps${d.text ? " — " + d.text : ""}`));
+        break;
+      case "_exit":
+        if (d.state !== "done") { approvals.innerHTML = ""; push(el("div", "m-exit", `run ${d.state}`)); }
+        break;
+      case "_error":
+        note(env.error || "command error");
+        break;
+      case "_trimmed":
+        push(el("div", "m-audit", "(history trimmed)"));
+        break;
+      // unknown tags are ignored: forward-compatible with newer engines
+    }
+  }
+
+  function note(text) { push(el("div", "m-note", text)); }
+  return { render, note };
+}

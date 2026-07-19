@@ -20,6 +20,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/josecarlosrivas/muxdeck/internal/agent"
+	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/tmux"
 )
@@ -37,10 +38,11 @@ type Server struct {
 	foldCase bool // generated codes are matched case-insensitively, GitHub-device-auth style
 	agents   *agent.Store
 	remotes  *remote.Manager
+	mushruns *mushrun.Manager
 }
 
-func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager) *Server {
-	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), remotes: remotes}
+func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager) *Server {
+	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), remotes: remotes, mushruns: mushruns}
 	s.mux.Handle("/", http.FileServerFS(static))
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
@@ -54,6 +56,10 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager) *Se
 	s.mux.HandleFunc("GET /api/sessions/{name}/files", s.auth(s.handleFiles))
 	s.mux.HandleFunc("GET /api/sessions/{name}/file", s.auth(s.handleFile))
 	s.mux.HandleFunc("POST /api/agent/status", s.auth(s.handleAgentStatus))
+	s.mux.HandleFunc("GET /api/mush/runs", s.auth(s.handleMushList))
+	s.mux.HandleFunc("POST /api/mush/runs", s.auth(s.handleMushStart))
+	s.mux.HandleFunc("GET /api/mush/runs/{id}/stream", s.auth(s.handleMushStream))
+	s.mux.HandleFunc("DELETE /api/mush/runs/{id}", s.auth(s.handleMushStop))
 	s.mux.HandleFunc("GET /api/remotes", s.auth(s.handleRemoteList))
 	s.mux.HandleFunc("POST /api/remotes", s.auth(s.handleRemoteAdd))
 	s.mux.HandleFunc("DELETE /api/remotes/{name}", s.auth(s.handleRemoteDelete))

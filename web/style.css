@@ -577,3 +577,36 @@ body {
   cursor: pointer;
 }
 
+
+/* mush run pane: live agent-protocol stream + approval cards */
+.mush-view { display: flex; flex-direction: column; overflow-y: auto; padding: 0; }
+.mush-view .m-stream { flex: 1; padding: 10px 14px 14px; font-size: 12.5px; line-height: 1.5; }
+.mush-view .m-task { color: var(--fg); font-weight: 600; padding: 4px 0 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.mush-view .m-step { color: var(--fg-dim); font-size: 11px; letter-spacing: 0.05em; margin: 12px 0 4px; text-transform: uppercase; }
+.mush-view .m-text { white-space: pre-wrap; margin: 6px 0; }
+.mush-view .m-think { color: var(--fg-dim); margin: 4px 0; }
+.mush-view .m-think summary { cursor: pointer; font-size: 11px; user-select: none; }
+.mush-view .m-think div { white-space: pre-wrap; font-size: 11.5px; padding: 4px 0 0 12px; }
+.mush-view .m-tool { border: 1px solid var(--border); border-radius: 6px; margin: 6px 0; padding: 6px 10px; background: var(--bg-panel); }
+.mush-view .m-tool-name { font-weight: 600; font-size: 12px; }
+.mush-view .m-tool-args { white-space: pre-wrap; margin: 4px 0 0; color: var(--fg-dim); font-size: 11.5px; max-height: 160px; overflow-y: auto; }
+.mush-view .m-result { margin-top: 6px; }
+.mush-view .m-result summary { cursor: pointer; font-size: 11px; color: var(--fg-dim); user-select: none; }
+.mush-view .m-result.err summary { color: var(--danger); }
+.mush-view .m-result pre { white-space: pre-wrap; font-size: 11.5px; margin: 4px 0 0; max-height: 240px; overflow-y: auto; }
+.mush-view .m-escalated { color: var(--warn, #fbbf24); font-size: 11.5px; margin: 4px 0; }
+.mush-view .m-verdict { margin: 8px 0; padding: 6px 10px; border-radius: 6px; font-size: 12px; background: var(--bg-panel); border: 1px solid var(--border); }
+.mush-view .m-verdict.pass { border-color: var(--accent); color: var(--accent); }
+.mush-view .m-verdict.fail { border-color: var(--danger); color: var(--danger); }
+.mush-view .m-done { margin: 10px 0; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--accent); color: var(--accent); font-weight: 600; }
+.mush-view .m-exit { margin: 10px 0; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--danger); color: var(--danger); }
+.mush-view .m-audit, .mush-view .m-note { color: var(--fg-dim); font-size: 11px; margin: 4px 0; }
+.mush-view .m-approvals { position: sticky; bottom: 0; padding: 0 14px; }
+.mush-view .m-approve { border: 1px solid var(--accent); border-radius: 8px; background: var(--bg-panel); padding: 8px 12px; margin: 8px 0; box-shadow: 0 -4px 16px rgba(0,0,0,0.4); }
+.mush-view .m-approve.danger { border-color: var(--danger); }
+.mush-view .m-approve-head { font-weight: 600; font-size: 12px; }
+.mush-view .m-approve.danger .m-approve-head { color: var(--danger); }
+.mush-view .m-approve-row { display: flex; gap: 8px; margin-top: 8px; }
+.mush-view .m-approve-row button { flex: 1; font: inherit; font-size: 12px; padding: 6px; border-radius: 6px; cursor: pointer; }
+.mush-view .m-yes { background: var(--accent); color: #0b0e11; border: none; font-weight: 600; }
+.mush-view .m-no { background: none; color: var(--fg); border: 1px solid var(--border); }
