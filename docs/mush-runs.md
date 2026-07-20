@@ -1,7 +1,7 @@
 # Agent runs (`:mush`)
 
-muxdeck can host [mush](https://github.com/josecarlosrivas/mush) agent runs as
-first-class panes. muxdeck is a *protocol client*: it spawns `mush stdio` per
+muxdeck can host mush agent runs as first-class panes. muxdeck is a
+*protocol client*: it spawns `mush stdio` per
 run, streams the engine's NDJSON events into a rendered pane, and sends
 protocol commands back — most importantly approval decisions, so a run started
 with the conservative `ask` policy can be supervised from any device, including
