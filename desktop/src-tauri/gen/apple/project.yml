@@ -1,6 +1,6 @@
 name: muxdeck-desktop
 options:
-  bundleIdPrefix: com.heckery.muxdeck
+  bundleIdPrefix: com.josecarlosrivas.muxdeck
   deploymentTarget:
     iOS: 14.0
 fileGroups: [../../src]
@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: muxdeck
-      PRODUCT_BUNDLE_IDENTIFIER: com.heckery.muxdeck
+      PRODUCT_BUNDLE_IDENTIFIER: com.josecarlosrivas.muxdeck
       DEVELOPMENT_TEAM: 2SDFN3YMRV
 targetTemplates:
   app:
