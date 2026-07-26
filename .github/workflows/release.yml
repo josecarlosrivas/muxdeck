@@ -77,6 +77,30 @@ jobs:
             --wait
           xcrun stapler staple "$app"
           rm muxdeck-app.zip
+      - name: Build updater artifact
+        # Tarred from the stapled .app so auto-updated installs carry the
+        # notarization ticket, then signed with the updater keypair (distinct
+        # from Apple codesigning — the app's baked-in pubkey verifies this).
+        working-directory: desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          tar -C src-tauri/target/release/bundle/macos -czf muxdeck_aarch64.app.tar.gz muxdeck.app
+          npx tauri signer sign muxdeck_aarch64.app.tar.gz
+      - name: Publish updater manifest
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          jq -n \
+            --arg version "${GITHUB_REF_NAME#v}" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg sig "$(cat muxdeck_aarch64.app.tar.gz.sig)" \
+            --arg url "https://github.com/josecarlosrivas/muxdeck/releases/download/${GITHUB_REF_NAME}/muxdeck_aarch64.app.tar.gz" \
+            '{version: $version, pub_date: $date, platforms: {"darwin-aarch64": {signature: $sig, url: $url}}}' \
+            > latest.json
+          gh release upload "$GITHUB_REF_NAME" muxdeck_aarch64.app.tar.gz muxdeck_aarch64.app.tar.gz.sig latest.json
       - name: Package DMG
         run: desktop/make-dmg.sh
       - name: Notarize and staple DMG

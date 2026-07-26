@@ -46,10 +46,54 @@ fn ensure_daemon() -> Option<std::process::Child> {
     None
 }
 
+// Launch-time update check: install silently, then offer a restart. Declining
+// is safe — the swapped .app applies on the next launch anyway. Before
+// restarting, kill our own sidecar so the relaunched app spawns the updated
+// daemon instead of attaching to the old one (an external daemon, e.g. a
+// launchd service, is never ours to kill and keeps working as before).
+#[cfg(desktop)]
+fn check_for_updates(app: tauri::AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    use tauri_plugin_updater::UpdaterExt;
+    tauri::async_runtime::spawn(async move {
+        let Ok(updater) = app.updater() else { return };
+        let Ok(Some(update)) = updater.check().await else { return };
+        if update.download_and_install(|_, _| {}, || {}).await.is_err() {
+            return;
+        }
+        let handle = app.clone();
+        app.dialog()
+            .message(format!(
+                "muxdeck {} has been installed and will run next launch.",
+                update.version
+            ))
+            .title("Update ready")
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Restart".into(),
+                "Later".into(),
+            ))
+            .show(move |restart| {
+                if restart {
+                    if let Some(state) = handle.try_state::<Sidecar>() {
+                        if let Some(child) = state.0.lock().unwrap().as_mut() {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                        }
+                    }
+                    handle.restart();
+                }
+            });
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_notification::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_notification::init());
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init());
+    builder
         .setup(|app| {
             app.manage(Sidecar(Mutex::new(ensure_daemon())));
             // Desktop rides the local daemon's own UI; mobile has no daemon
@@ -67,6 +111,8 @@ pub fn run() {
             #[cfg(not(desktop))]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .build()?;
+            #[cfg(desktop)]
+            check_for_updates(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

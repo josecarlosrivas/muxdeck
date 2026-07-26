@@ -3,5 +3,13 @@
     "externalBin": [
       "binaries/muxdeck"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVEREU0QUQ4OUZFNTY5RjcKUldUM2FlV2YyRXJlWForaXpnbHMyOXFqd0crMmoyVDZCWEhwdTNrb0FhVm1obU05dmltUkxLdUwK",
+      "endpoints": [
+        "https://github.com/josecarlosrivas/muxdeck/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
