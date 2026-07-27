@@ -11,7 +11,8 @@ sessions from the browser.
 - **Split view** — two sessions side by side on wide screens; the deep-link
   hash carries both (`/#build,logs`)
 - **Session management** — create, kill, rename, drag to reorder, unseen-output
-  dots, and a fuzzy quick-switcher (`⌘K` / `Ctrl+Shift+K`)
+  dots, and a command palette (`⌘K` / `Ctrl+Shift+K`) with fuzzy switching
+  and tab completion
 - **Clipboard that works** — selection copies on release, tmux copy-mode
   yanks land on the system clipboard via OSC 52, and touch devices get a
   paste key; URLs in output are clickable
@@ -94,7 +95,7 @@ override, and the frontend turns the resulting OSC 52 writes into browser
 clipboard writes. Paste with `⌘V`/`Ctrl+V`, or the `paste` key on touch
 devices. Clipboard access needs a secure context (HTTPS or localhost).
 
-**Keyboard shortcuts:** `⌘K` (`Ctrl+Shift+K`) fuzzy session switcher,
+**Keyboard shortcuts:** `⌘K` (`Ctrl+Shift+K`) command palette,
 `⌘F` (`Ctrl+Shift+F`) find in scrollback. Plain Ctrl combos always go to
 the terminal.
 
@@ -202,7 +203,7 @@ Session names are restricted to `[A-Za-z0-9_-]{1,64}`.
 ## Viewers
 
 The split layout doubles as a review surface. With a session focused, open
-the palette (⌘K):
+the command palette (⌘K):
 
 - **`:diff`** — the session's repo diff (working tree vs `HEAD`) rendered in
   the opposite pane, anchored to the pane's current directory. Refreshes
@@ -218,8 +219,8 @@ the remote proxy (the remote must run a version that has them).
 
 Any machine running muxdeck can appear in the sidebar as a collapsible group
 — sessions there list, attach, create, rename, and kill exactly like local
-ones, addressed as `host:name` everywhere (panes, the ⌘K switcher, the URL
-hash). Two transports:
+ones, addressed as `host:name` everywhere (panes, the command palette, the
+URL hash). Two transports:
 
 - **`url`** — the remote is directly reachable (LAN, VPN, tailnet). Its
   token, if set, is stored locally and injected by the proxy; the browser
@@ -229,9 +230,10 @@ hash). Two transports:
   and `ProxyJump` all apply and ssh itself is the authentication. Tunnels
   start lazily, restart with backoff, and die with the daemon.
 
-Manage remotes with `:remote` in the palette (`add jack ssh jack`,
-`add lab url http://lab:8300 TOKEN`, `rm jack`) or the `/api/remotes`
-endpoints. The registry lives at `remotes.json` under the user config dir
+Manage remotes with `:remote` in the command palette — the prompt
+tab-completes each token and hints the syntax ahead (`add jack ssh jack`,
+`add lab url http://lab:8300 TOKEN`, `rm jack`, `off`/`on` to toggle) — or
+the `/api/remotes` endpoints. The registry lives at `remotes.json` under the user config dir
 (override with `MUXDECK_REMOTES`), mode `0600` since it can hold remote
 tokens. Unreachable remotes show a broken-link icon with the error in the
 tooltip.

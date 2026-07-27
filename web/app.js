@@ -1016,6 +1016,7 @@ function creatableKey(q) {
 
 function palItems() {
   const q = $("#pal-input").value.trim();
+  if (pal.mode === "remote") return remoteSuggest().items.map((it) => ({ kind: "suggest", ...it }));
   if (pal.mode === "mdpick")
     return (pal.files || []).filter(fuzzy(q)).map((f) => ({ kind: "file", name: f }));
   if (pal.mode === "pick")
@@ -1046,7 +1047,7 @@ function renderPalette() {
       label.textContent = it.name;
       right.textContent = `${it.s.windows}w${it.s.attached > 0 ? " ●" : ""}`;
       if (it.s.agent) right.textContent += ` · ${{ working: "◐", waiting: "✋", idle: "○" }[it.s.agent.state] || ""}`;
-    } else if (it.kind === "command") {
+    } else if (it.kind === "command" || it.kind === "suggest") {
       label.textContent = it.name;
       label.className = "cmd";
       right.textContent = it.hint;
@@ -1063,6 +1064,7 @@ function renderPalette() {
     ul.appendChild(li);
   });
   updateCaret();
+  updateGhost();
 }
 
 async function palActivate(it) {
@@ -1074,6 +1076,8 @@ async function palActivate(it) {
   } else if (it.kind === "command") {
     it.run();
     if (it.keep) renderPalette();
+  } else if (it.kind === "suggest") {
+    palComplete(it);
   } else if (it.kind === "file") {
     const key = pal.arg;
     closePalette();
@@ -1157,6 +1161,55 @@ async function openMdPicker() {
   renderPalette();
 }
 
+// Stage-aware completion for ":remote": menu items for the token being
+// typed, plus a ghost hint of the syntax still ahead. `words` holds only
+// completed tokens — a trailing partial is popped off and used as the
+// filter prefix.
+function remoteSuggest() {
+  const q = $("#pal-input").value;
+  const words = q.split(/\s+/).filter(Boolean);
+  const part = q.endsWith(" ") || !words.length ? "" : words.pop();
+  const sugg = (list) => list.filter((it) => it.name.startsWith(part));
+  const ghost = (t) => (part ? "" : t);
+  const [verb] = words;
+  if (!words.length)
+    return {
+      items: sugg([
+        { name: "add", hint: "connect a new remote" },
+        { name: "rm",  hint: "delete a remote" },
+        { name: "off", hint: "disconnect, keep config" },
+        { name: "on",  hint: "reconnect" },
+      ]),
+      ghost: ghost("add · rm · off · on"),
+    };
+  if (verb === "rm" || verb === "off" || verb === "on") {
+    const pool = verb === "rm" ? remotes : remotes.filter((r) => (r.state === "off") === (verb === "on"));
+    return {
+      items: words.length === 1 ? sugg(pool.map((r) => ({ name: r.name, hint: r.state }))) : [],
+      ghost: words.length === 1 ? ghost("<name>") : "",
+    };
+  }
+  if (verb !== "add") return { items: [], ghost: ghost("add · rm · off · on") };
+  if (words.length === 1) return { items: [], ghost: ghost("<name>") };
+  if (words.length === 2)
+    return {
+      items: sugg([
+        { name: "ssh", hint: "<host[:port]> [token]" },
+        { name: "url", hint: "<url> [token]" },
+      ]),
+      ghost: ghost("ssh · url"),
+    };
+  if (words.length === 3)
+    return { items: [], ghost: ghost(words[2] === "url" ? "<url> [token]" : "<host[:port]> [token]") };
+  return { items: [], ghost: words.length === 4 ? ghost("[token]") : "" };
+}
+
+function remoteLineValid(line) {
+  const w = line.split(/\s+/).filter(Boolean);
+  return ["rm", "off", "on"].includes(w[0]) ? w.length === 2 :
+    w[0] === "add" && (w[2] === "ssh" || w[2] === "url") && w.length >= 4 && w.length <= 5;
+}
+
 // ":remote ❯" one-liners: "add jack ssh jack", "add lab ssh lab.example:9000 TOKEN",
 // "add juneau url http://juneau:8300 TOKEN", "rm jack", "off jack", "on jack".
 async function runRemoteCommand(line) {
@@ -1192,12 +1245,12 @@ async function runRemoteCommand(line) {
 }
 
 const PAL_MODES = {
-  switch:  { prompt: "❯", ph: "session or :command", hint: "↑↓ move · ⏎ open · : commands · esc close" },
+  switch:  { prompt: "❯", ph: "session or :command", hint: "↑↓ move · tab complete · ⏎ open · : commands · esc close" },
   new:     { prompt: "new ❯", ph: "session name (host:name for a remote)", hint: "⏎ create · esc back" },
   pick:    { prompt: null, ph: "which session?", hint: "↑↓ move · ⏎ select · esc back" },
   input:   { prompt: null, ph: "new name", hint: "⏎ rename · esc back" },
   confirm: { prompt: null, ph: "", hint: "y kill · n / esc back" },
-  remote:  { prompt: ":remote ❯", ph: "add <name> ssh <host[:port]> [token] · add <name> url <url> [token] · rm <name>", hint: "⏎ run · esc back" },
+  remote:  { prompt: ":remote ❯", ph: "add · rm · off · on", hint: "tab complete · ⏎ run · esc back" },
   mdpick:  { prompt: ":md ❯", ph: "which file?", hint: "↑↓ move · ⏎ preview · esc back" },
   mush:    { prompt: ":mush ❯", ph: "[-m model] task (runs in the focused session's cwd)", hint: "⏎ run · esc back" },
 };
@@ -1211,7 +1264,6 @@ function setPalMode(mode, verb = null, arg = null) {
     mode === "pick" ? `:${verb} ❯` :
     mode === "input" ? `:${verb} ${arg} ❯` :
     mode === "confirm" ? `:${verb} ${arg}? [y/N]` : m.prompt;
-  inp.placeholder = m.ph && " " + m.ph; // leading space: the block caret sits on col 0
   inp.readOnly = mode === "confirm";
   $(".pal-hint").textContent = m.hint;
   renderPalette();
@@ -1232,6 +1284,36 @@ function closePalette() {
 function palBack() {
   if (pal.mode === "switch") closePalette();
   else setPalMode("switch");
+}
+
+// The ghost sits after the typed text (offset one cell for the block
+// caret) and plays placeholder when the input is empty: the mode's ph in
+// most modes, a stage-aware syntax hint in remote mode.
+function updateGhost() {
+  const inp = $("#pal-input");
+  const g = $(".pal-ghost");
+  g.textContent = pal.mode === "remote" ? remoteSuggest().ghost
+    : inp.value ? "" : PAL_MODES[pal.mode]?.ph || "";
+  g.style.left = `${inp.value.length + 1}ch`;
+}
+
+// Tab (or tap/⏎ on a suggestion): splice the selected name into the input
+// in place of the partial token, without running anything.
+function palComplete(it) {
+  const inp = $("#pal-input");
+  if (it.kind === "suggest") {
+    const q = inp.value;
+    const head = q.endsWith(" ") ? q : q.slice(0, q.lastIndexOf(" ") + 1);
+    inp.value = head + it.name + " ";
+  } else if (it.kind === "create") {
+    return;
+  } else {
+    inp.value = it.name;
+  }
+  pal.index = 0;
+  inp.focus();
+  inp.setSelectionRange(inp.value.length, inp.value.length);
+  renderPalette();
 }
 
 function updateCaret() {
@@ -1266,9 +1348,12 @@ $("#pal-input").addEventListener("keydown", async (e) => {
     return;
   }
   const items = palItems();
-  if (e.key === "ArrowDown" || e.key === "Tab" && !e.shiftKey || e.ctrlKey && e.key === "n") {
+  if (e.key === "Tab") {
+    e.preventDefault();
+    if (items[pal.index]) palComplete(items[pal.index]);
+  } else if (e.key === "ArrowDown" || e.ctrlKey && e.key === "n") {
     e.preventDefault(); pal.index++; renderPalette();
-  } else if (e.key === "ArrowUp" || e.key === "Tab" && e.shiftKey || e.ctrlKey && e.key === "p") {
+  } else if (e.key === "ArrowUp" || e.ctrlKey && e.key === "p") {
     e.preventDefault(); pal.index--; renderPalette();
   } else if (e.key === "Enter") {
     e.preventDefault();
@@ -1276,7 +1361,10 @@ $("#pal-input").addEventListener("keydown", async (e) => {
     if (pal.mode === "new") { if (creatableKey(name)) await createSession(name); }
     else if (pal.mode === "input") {
       if (VALID_NAME.test(name)) { closePalette(); await renameSession(pal.arg, name); }
-    } else if (pal.mode === "remote") { await runRemoteCommand(name); }
+    } else if (pal.mode === "remote") {
+      if (!remoteLineValid(name) && items[pal.index]) palComplete(items[pal.index]);
+      else await runRemoteCommand(name);
+    }
     else if (pal.mode === "mush") { await runMushCommand(name); }
     else if (items[pal.index]) await palActivate(items[pal.index]);
   } else if (e.key === "Backspace" && !$("#pal-input").value && pal.mode !== "switch") {

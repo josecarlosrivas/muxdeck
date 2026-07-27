@@ -440,7 +440,17 @@ body {
   padding: 0;
 }
 .pal-field input:focus { outline: none; }
-.pal-field input::placeholder { color: var(--fg-dim); }
+.pal-ghost {
+  position: absolute;
+  top: 0;
+  right: 0;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  pointer-events: none;
+}
 .pal-caret {
   position: absolute;
   top: 0;
