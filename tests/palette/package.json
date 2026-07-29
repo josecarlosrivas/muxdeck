@@ -1,0 +1,11 @@
+{
+  "name": "muxdeck-palette-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node palette.test.mjs"
+  },
+  "devDependencies": {
+    "puppeteer": "^24.0.0"
+  }
+}
