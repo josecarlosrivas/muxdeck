@@ -17,6 +17,45 @@ jobs:
       - run: go build ./...
       - run: gofmt -l . && test -z "$(gofmt -l .)"
 
+  ios-metadata:
+    # The iOS bundle id and version live in the committed generated Xcode
+    # tree, which no version-bump step writes to — desktop releases touch
+    # Cargo.toml / Cargo.lock / tauri.conf.json only. That let the plist sit
+    # two minors behind (0.9.2 vs 0.11.1) unnoticed. Assert the invariants
+    # here so the drift surfaces on the bump PR instead of in TestFlight.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: iOS bundle id and version match their sources
+        run: |
+          python3 - <<'PY'
+          import json, plistlib, re, sys
+
+          gen = "desktop/src-tauri/gen/apple"
+          conf = json.load(open("desktop/src-tauri/tauri.conf.json"))
+          plist = plistlib.load(open(f"{gen}/muxdeck-desktop_iOS/Info.plist", "rb"))
+          pbxproj = open(f"{gen}/muxdeck-desktop.xcodeproj/project.pbxproj").read()
+
+          ids = set(re.findall(r"PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);", pbxproj))
+          fails = []
+
+          if plist.get("CFBundleShortVersionString") != conf["version"]:
+              fails.append(
+                  f"CFBundleShortVersionString is {plist.get('CFBundleShortVersionString')!r}, "
+                  f"expected {conf['version']!r} from tauri.conf.json — bump the iOS plist too"
+              )
+          if ids != {"com.josecarlosrivas.muxdeck"}:
+              fails.append(
+                  f"PRODUCT_BUNDLE_IDENTIFIER is {sorted(ids)}, expected "
+                  "['com.josecarlosrivas.muxdeck'] — re-running `tauri ios init` "
+                  "reverts it to tauri.conf.json's identifier"
+              )
+
+          for f in fails:
+              print(f"::error::{f}")
+          sys.exit(1 if fails else 0)
+          PY
+
   palette:
     runs-on: ubuntu-latest
     steps:
