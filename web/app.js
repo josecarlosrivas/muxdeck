@@ -336,7 +336,9 @@ class Pane {
       fontFamily: "SF Mono, Menlo, Monaco, monospace",
       fontSize,
       cursorBlink: true,
-      scrollback: 10000,
+      // 3k rows ≈ a few MB per pane; 10k made attached panes the biggest
+      // JS-heap line item once Claude Code TUIs filled them.
+      scrollback: 3000,
       macOptionClickForcesSelection: true,
       allowProposedApi: true, // Unicode11Addon's version switch needs it
       theme: { background: "#000000" },
@@ -1491,16 +1493,27 @@ function mushRenderer(box, send) {
   approvals.className = "m-approvals";
   box.append(stream, approvals);
 
-  let textBlock = null, thinkBlock = null, lastTool = null;
+  let textBlock = null, thinkBlock = null, lastTool = null, prunedNote = null;
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
     if (text !== undefined) n.textContent = text;
     return n;
   };
+  // Long runs grow the stream without bound (per-payload caps bound each
+  // card, not the card count). Keep the DOM to the recent tail; the full
+  // history stays in the daemon's replay buffer.
+  const MAX_STREAM_NODES = 400;
   const push = (n) => {
     const follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
     stream.appendChild(n);
+    if (stream.childElementCount > MAX_STREAM_NODES) {
+      if (!prunedNote) {
+        prunedNote = el("div", "m-audit", "(older output pruned)");
+        stream.prepend(prunedNote);
+      }
+      while (stream.childElementCount > MAX_STREAM_NODES) stream.children[1].remove();
+    }
     if (follow) box.scrollTop = box.scrollHeight;
   };
   const breakBlocks = () => { textBlock = null; thinkBlock = null; };
