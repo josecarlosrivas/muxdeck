@@ -78,6 +78,7 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           key="$RUNNER_TEMP/AuthKey.p8"
           if printf '%s' "$APPLE_API_KEY_CONTENT" | grep -q "BEGIN PRIVATE KEY"; then
@@ -86,6 +87,8 @@ jobs:
             printf '%s' "$APPLE_API_KEY_CONTENT" | base64 --decode > "$key"
           fi
           dmg=$(ls muxdeck_*.dmg)
+          codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$dmg"
+          codesign --verify --verbose=2 "$dmg"
           hdiutil verify "$dmg"
           xcrun notarytool submit "$dmg" \
             --key "$key" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
