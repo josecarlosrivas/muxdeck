@@ -3,6 +3,14 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild
+        required: true
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -12,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -20,22 +30,24 @@ jobs:
           mkdir -p dist
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 \
-              go build -trimpath -ldflags "-s -w -X main.version=$GITHUB_REF_NAME" \
+              go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_TAG" \
               -o "dist/muxdeck-${target%/*}-${target#*/}" .
           done
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes
+          gh release upload "$RELEASE_TAG" dist/* --clobber
 
   desktop-dmg:
     runs-on: macos-latest
     needs: release
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -45,7 +57,7 @@ jobs:
       - name: Assert desktop version matches tag
         run: |
           v=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' desktop/src-tauri/tauri.conf.json | head -1)
-          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tauri.conf.json is $v but tag is $GITHUB_REF_NAME" >&2; exit 1; }
+          [ "v$v" = "$RELEASE_TAG" ] || { echo "tauri.conf.json is $v but tag is $RELEASE_TAG" >&2; exit 1; }
       - name: Build sidecar daemon
         run: desktop/build-sidecar.sh
       - name: Install desktop deps
@@ -58,9 +70,9 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: npx tauri build --bundles app
-      - name: Notarize and staple app
-        # Stapling the .app itself (not just the DMG) lets Gatekeeper verify
-        # the dragged-out app offline on first launch.
+      - name: Package DMG
+        run: desktop/make-dmg.sh
+      - name: Notarize and staple distribution
         working-directory: desktop
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
@@ -73,13 +85,14 @@ jobs:
           else
             printf '%s' "$APPLE_API_KEY_CONTENT" | base64 --decode > "$key"
           fi
-          app=src-tauri/target/release/bundle/macos/muxdeck.app
-          ditto -c -k --keepParent "$app" muxdeck-app.zip
-          xcrun notarytool submit muxdeck-app.zip \
+          dmg=$(ls muxdeck_*.dmg)
+          hdiutil verify "$dmg"
+          xcrun notarytool submit "$dmg" \
             --key "$key" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
             --wait
+          xcrun stapler staple "$dmg"
+          app=src-tauri/target/release/bundle/macos/muxdeck.app
           xcrun stapler staple "$app"
-          rm muxdeck-app.zip
       - name: Build updater artifact
         # Tarred from the stapled .app so auto-updated installs carry the
         # notarization ticket, then signed with the updater keypair (distinct
@@ -97,19 +110,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           jq -n \
-            --arg version "${GITHUB_REF_NAME#v}" \
+            --arg version "${RELEASE_TAG#v}" \
             --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg sig "$(cat muxdeck_aarch64.app.tar.gz.sig)" \
-            --arg url "https://github.com/josecarlosrivas/muxdeck/releases/download/${GITHUB_REF_NAME}/muxdeck_aarch64.app.tar.gz" \
+            --arg url "https://github.com/josecarlosrivas/muxdeck/releases/download/${RELEASE_TAG}/muxdeck_aarch64.app.tar.gz" \
             '{version: $version, pub_date: $date, platforms: {"darwin-aarch64": {signature: $sig, url: $url}}}' \
             > latest.json
-          gh release upload "$GITHUB_REF_NAME" muxdeck_aarch64.app.tar.gz muxdeck_aarch64.app.tar.gz.sig latest.json --clobber
-      - name: Package DMG
-        run: desktop/make-dmg.sh
+          gh release upload "$RELEASE_TAG" muxdeck_aarch64.app.tar.gz muxdeck_aarch64.app.tar.gz.sig latest.json --clobber
       - name: Upload DMG to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           dmg=$(ls desktop/muxdeck_*.dmg)
           cp "$dmg" muxdeck_macos_arm64.dmg
-          gh release upload "$GITHUB_REF_NAME" "$dmg" muxdeck_macos_arm64.dmg --clobber
+          gh release upload "$RELEASE_TAG" "$dmg" muxdeck_macos_arm64.dmg --clobber

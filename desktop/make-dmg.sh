@@ -17,5 +17,5 @@ trap 'rm -rf "$STAGE"' EXIT
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
-hdiutil create -volname muxdeck -srcfolder "$STAGE" -ov -format UDZO "$OUT" >/dev/null
+hdiutil create -volname muxdeck -srcfolder "$STAGE" -ov -format UDZO -fs HFS+ "$OUT" >/dev/null
 echo "built $OUT"
