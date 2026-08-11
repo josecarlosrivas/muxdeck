@@ -70,6 +70,25 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: npx tauri build --bundles app
+      - name: Notarize and staple app
+        working-directory: desktop
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          key="$RUNNER_TEMP/AuthKey.p8"
+          if printf '%s' "$APPLE_API_KEY_CONTENT" | grep -q "BEGIN PRIVATE KEY"; then
+            printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$key"
+          else
+            printf '%s' "$APPLE_API_KEY_CONTENT" | base64 --decode > "$key"
+          fi
+          app=src-tauri/target/release/bundle/macos/muxdeck.app
+          ditto -c -k --keepParent "$app" muxdeck-app.zip
+          xcrun notarytool submit muxdeck-app.zip \
+            --key "$key" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$app"
       - name: Package DMG
         run: desktop/make-dmg.sh
       - name: Notarize and staple distribution
@@ -107,8 +126,6 @@ jobs:
             --key "$key" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
             --wait
           xcrun stapler staple "$dmg"
-          app=src-tauri/target/release/bundle/macos/muxdeck.app
-          xcrun stapler staple "$app"
       - name: Build updater artifact
         # Tarred from the stapled .app so auto-updated installs carry the
         # notarization ticket, then signed with the updater keypair (distinct
