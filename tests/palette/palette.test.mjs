@@ -111,6 +111,24 @@ try {
   // The remotes list must have landed before pool assertions mean anything.
   await page.waitForFunction(() => remotes.length === 3);
 
+  // --- sidebar navigator ---
+  assertEq("sidebar: desktop heading names the navigation surface",
+    await page.$eval("#sidebar h1", (el) => el.textContent), "Sessions");
+  assertEq("sidebar: local and remote groups are explicit",
+    await page.$$eval("#sessions .section-head", (els) => els.map((el) => el.firstChild.textContent)),
+    ["Local", "Remotes"]);
+  await page.evaluate(() => document.querySelector("#new-session").click());
+  assertEq("sidebar: new button opens the palette in create mode", await modeText(), "new ❯");
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => document.querySelector("#sidebar-toggle").click());
+  assertEq("sidebar: collapsed rail is icon width",
+    await page.$eval("#sidebar", (el) => getComputedStyle(el).width), "40px");
+  assert("sidebar: session list hides in the collapsed rail",
+    await page.$eval("#sessions", (el) => getComputedStyle(el).display === "none"));
+  await page.evaluate(() => document.querySelector("#sidebar-toggle").click());
+  assertEq("sidebar: expand restores the configured width",
+    await page.$eval("#sidebar", (el) => getComputedStyle(el).width), "230px");
+
   // --- switch mode: ghost plays placeholder when empty ---
   await page.evaluate(() => { openPalette("switch"); });
   assertEq("switch mode: empty-input ghost is the placeholder", await ghost(), "session or :command");

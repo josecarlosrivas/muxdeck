@@ -29,7 +29,7 @@ function icon(name) {
 $("#notify").innerHTML = icon("bell");
 $("#split").innerHTML = icon("columns");
 $("#refresh").innerHTML = icon("refresh");
-$("#new-session button").innerHTML = icon("plus");
+$("#new-session").innerHTML = icon("plus");
 
 // --- persisted prefs ---
 
@@ -564,11 +564,19 @@ function sidebarW() {
 function applySidebar() {
   document.documentElement.style.setProperty("--sidebar-w", `${sidebarW()}px`);
   $("#sidebar").classList.toggle("collapsed", localStorage.getItem("muxdeck-sidebar-collapsed") === "1");
+  paintSidebarToggle();
 }
 
 function toggleSidebar() {
   const collapsed = $("#sidebar").classList.toggle("collapsed");
   localStorage.setItem("muxdeck-sidebar-collapsed", collapsed ? "1" : "");
+  paintSidebarToggle();
+}
+
+function paintSidebarToggle() {
+  const collapsed = $("#sidebar").classList.contains("collapsed");
+  $("#sidebar-toggle").innerHTML = icon(collapsed ? "chevronRight" : "chevronLeft");
+  $("#sidebar-toggle").title = collapsed ? "Expand sidebar" : "Collapse sidebar";
 }
 
 // Horizontal drag: pointer capture keeps moves on the handle even when the
@@ -594,10 +602,7 @@ hDrag($("#sidebar-resizer"), (x) => {
   document.documentElement.style.setProperty("--sidebar-w", `${sidebarW()}px`);
 });
 $("#sidebar-resizer").addEventListener("dblclick", toggleSidebar);
-$("#sidebar-expand").innerHTML = icon("chevronRight");
-$("#sidebar").addEventListener("click", () => {
-  if ($("#sidebar").classList.contains("collapsed")) toggleSidebar();
-});
+$("#sidebar-toggle").addEventListener("click", toggleSidebar);
 
 let divider = null;
 
@@ -779,7 +784,9 @@ async function refreshSessions() {
 
   const ul = $("#sessions");
   ul.innerHTML = "";
+  ul.appendChild(sectionHeader("Local", lastSessions.length));
   for (const s of orderedSessions()) ul.appendChild(sessionRow({ ...s, key: s.name }, attached));
+  if (remotes.length) ul.appendChild(sectionHeader("Remotes", remotes.length));
   for (const r of remotes) {
     ul.appendChild(remoteHeader(r));
     if (collapsedRemotes[r.name] || r.state !== "ok") continue;
@@ -788,6 +795,18 @@ async function refreshSessions() {
     }
   }
   if (!$("#palette").hidden) renderPalette();
+}
+
+function sectionHeader(label, count) {
+  const li = document.createElement("li");
+  li.className = "section-head";
+  const name = document.createElement("span");
+  name.textContent = label;
+  const total = document.createElement("span");
+  total.className = "section-count";
+  total.textContent = count;
+  li.append(name, total);
+  return li;
 }
 
 function sessionRow(s, attached) {
@@ -805,6 +824,8 @@ function sessionRow(s, attached) {
     initDrag(li, grip);
   }
 
+  const copy = document.createElement("span");
+  copy.className = "session-copy";
   const name = document.createElement("span");
   name.className = "name";
   name.textContent = s.name;
@@ -815,6 +836,13 @@ function sessionRow(s, attached) {
     name.append(" ", dot);
   }
 
+  const detail = document.createElement("span");
+  detail.className = "detail";
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  meta.textContent = `${s.windows} window${s.windows === 1 ? "" : "s"}${s.attached > 0 ? " · attached" : ""}`;
+  detail.appendChild(meta);
+
   if (s.agent) {
     const badge = document.createElement("span");
     badge.className = `agent agent-${s.agent.state}`;
@@ -824,12 +852,9 @@ function sessionRow(s, attached) {
     badge.title = `${s.agent.agent} is ${s.agent.state}` +
       (s.agent.note ? ` — ${s.agent.note}` : "") +
       ` · updated ${new Date(s.agent.updated_at).toLocaleTimeString()}`;
-    name.append(" ", badge);
+    detail.appendChild(badge);
   }
-
-  const meta = document.createElement("span");
-  meta.className = "meta";
-  meta.textContent = `${s.windows} win${s.windows === 1 ? "" : "s"}${s.attached > 0 ? " ●" : ""}`;
+  copy.append(name, detail);
   li.title = `${s.key} · ${s.windows} window${s.windows === 1 ? "" : "s"} · created ${new Date(s.created).toLocaleString()}${s.attached > 0 ? " · attached" : ""}`;
 
   const rename = document.createElement("button");
@@ -851,7 +876,10 @@ function sessionRow(s, attached) {
     await killSession(s.key);
   });
 
-  li.append(grip, name, meta, rename, kill);
+  const actions = document.createElement("span");
+  actions.className = "session-actions";
+  actions.append(rename, kill);
+  li.append(grip, copy, actions);
   li.addEventListener("click", () => paneFor().attach(s.key));
   return li;
 }
@@ -896,7 +924,7 @@ function initDrag(li, grip) {
     const ul = $("#sessions");
     const move = (ev) => {
       const over = document.elementFromPoint(ev.clientX, ev.clientY)
-        ?.closest("#sessions li:not(.remote-head):not(.remote-session)");
+        ?.closest("#sessions li:not(.section-head):not(.remote-head):not(.remote-session)");
       if (over && over !== li) {
         const r = over.getBoundingClientRect();
         ul.insertBefore(li, ev.clientY < r.top + r.height / 2 ? over : over.nextSibling);
@@ -906,7 +934,7 @@ function initDrag(li, grip) {
     grip.addEventListener("pointerup", () => {
       grip.removeEventListener("pointermove", move);
       li.classList.remove("dragging");
-      order = [...ul.querySelectorAll("li:not(.remote-head):not(.remote-session)")].map((n) => n.dataset.name);
+      order = [...ul.querySelectorAll("li:not(.section-head):not(.remote-head):not(.remote-session)")].map((n) => n.dataset.name);
       saveOrder();
     }, { once: true });
   });
@@ -964,13 +992,7 @@ if (tauriNotif || typeof Notification !== "undefined") {
   });
 }
 
-$("#new-session").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const name = $("#new-name").value.trim();
-  if (!name) return;
-  await createSession(name);
-  $("#new-name").value = "";
-});
+$("#new-session").addEventListener("click", () => openPalette("new"));
 
 // --- command palette ---
 // One overlay, several modes. "switch" is the spotlight default: fuzzy
