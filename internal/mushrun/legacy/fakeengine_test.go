@@ -1,4 +1,4 @@
-package mushrun
+package legacy
 
 import (
 	"os"

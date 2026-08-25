@@ -267,23 +267,30 @@ class Pane {
     this.msg("select or create a session");
   }
 
-  // --- mush run pane: a live protocol client. Unlike the poll-based viewers,
-  // this streams the run's events over a websocket and can answer approval
-  // requests. view = {type: "mush", host, runId, task}.
+  // --- mush run pane: a viewer over a run's journal. The daemon replays the
+  // journal and tails it over a websocket; the ledger row rides along as
+  // `_run` / `_state` frames. Approval cards answer over the same socket —
+  // the daemon routes the decision to whoever owns the run (its own engine,
+  // or the mush serve behind serve.sock). view = {type: "mush", host, runId}.
 
   openMush(host, run) {
     if (this.session) this.detach(true);
     if (this.view) this.closeView();
-    this.view = { type: "mush", host, runId: run.id, task: run.task };
+    this.view = { type: "mush", host: host || "", runId: run.id, run };
     this.el.querySelector(".pane-term").hidden = true;
     const v = this.el.querySelector(".pane-view");
     v.hidden = false;
     v.className = "pane-view mush-view";
     this.el.querySelector(".p-refresh").hidden = false;
-    this.el.querySelector(".pane-title").textContent =
-      `mush${run.model ? " · " + run.model : ""} · ${run.task.slice(0, 60)}`;
+    this.setMushTitle(run);
     this.msg("");
     this.connectMush();
+    refreshSessions();
+  }
+
+  setMushTitle(run) {
+    this.el.querySelector(".pane-title").textContent =
+      `mush · ${run.state ? run.state.replace("_", " ") + " · " : ""}${runLabel(run).slice(0, 60)}`;
   }
 
   connectMush() {
@@ -291,6 +298,8 @@ class Pane {
     const { host, runId } = this.view;
     const box = this.el.querySelector(".pane-view");
     box.innerHTML = "";
+    const head = mushRunHeader(host, this.view.run, this);
+    box.appendChild(head.el);
     const r = mushRenderer(box, (frame) => this.mushWS?.send(JSON.stringify(frame)));
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}${mushApi(host, `/${encodeURIComponent(runId)}/stream`)}`);
@@ -298,9 +307,16 @@ class Pane {
     ws.onmessage = (e) => {
       let env;
       try { env = JSON.parse(e.data); } catch { return; }
+      if (env.type === "_run" || env.type === "_state") {
+        this.view.run = env.data;
+        head.update(env.data);
+        this.setMushTitle(env.data);
+        if (env.type === "_state") refreshSessions();
+        return;
+      }
       r.render(env);
     };
-    ws.onclose = () => r.note("stream disconnected — ↻ to reconnect");
+    ws.onclose = () => r.note("stream closed — ↻ to reconnect");
   }
 
   async refreshView() {
@@ -651,6 +667,7 @@ function attachFromHash() {
 
 let lastSessions = [];
 let remotes = []; // /api/remotes statuses
+let mushRuns = new Map(); // host ("" = local) → /api/mush/runs payload
 const remoteSessions = new Map(); // remote name -> its session list
 const seenActivity = new Map(); // key -> last activity we consider seen
 const agentStates = new Map(); // key -> last agent state, for waiting-transition alerts
@@ -782,6 +799,10 @@ async function refreshSessions() {
     else agentStates.delete(s.key);
   }
 
+  // mush runs ride the same tick: the local ledger plus each live remote's.
+  // A daemon without mush answers available:false and an empty list.
+  await refreshRuns();
+
   const ul = $("#sessions");
   ul.innerHTML = "";
   ul.appendChild(sectionHeader("Local", lastSessions.length));
@@ -794,7 +815,90 @@ async function refreshSessions() {
       ul.appendChild(sessionRow({ ...s, key: `${r.name}:${s.name}`, remote: r.name }, attached));
     }
   }
+  const runs = allRuns();
+  if (runs.length) {
+    const head = sectionHeader("Runs", runs.length);
+    head.title = "mush runs · click to collapse";
+    head.style.cursor = "pointer";
+    head.addEventListener("click", () => {
+      runsCollapsed = !runsCollapsed;
+      localStorage.setItem("muxdeck-runs-collapsed", runsCollapsed ? "1" : "");
+      refreshSessions();
+    });
+    ul.appendChild(head);
+    if (!runsCollapsed) for (const r of runs.slice(0, RUNS_SHOWN)) ul.appendChild(runRow(r));
+  }
   if (!$("#palette").hidden) renderPalette();
+}
+
+const RUNS_SHOWN = 12;
+let runsCollapsed = localStorage.getItem("muxdeck-runs-collapsed") === "1";
+
+async function refreshRuns() {
+  const hosts = ["", ...remotes.filter((r) => r.state === "ok").map((r) => r.name)];
+  await Promise.all(hosts.map(async (host) => {
+    try {
+      const res = await api(mushApi(host, "?limit=30"));
+      if (res.available) mushRuns.set(host, res); else mushRuns.delete(host);
+    } catch { mushRuns.delete(host); }
+  }));
+  for (const host of [...mushRuns.keys()]) if (!hosts.includes(host)) mushRuns.delete(host);
+}
+
+// allRuns flattens every host's ledger rows, newest first (ids sort
+// chronologically by construction).
+function allRuns() {
+  const out = [];
+  for (const [host, res] of mushRuns) for (const r of res.runs || []) out.push({ ...r, host });
+  return out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+}
+
+const RUN_LIVE = new Set(["queued", "planning", "implementing", "awaiting_approval", "verifying"]);
+const RUN_OK = new Set(["done", "pr_open", "merged"]);
+
+function runState(r) {
+  return r.state === "awaiting_approval" ? "wait" : RUN_LIVE.has(r.state) ? "live" : RUN_OK.has(r.state) ? "ok" : "bad";
+}
+
+function runLabel(r) {
+  if (r.source === "issue" && r.source_ref) return `#${r.source_ref}`;
+  if (r.source === "schedule" && r.source_ref) return `⏰ ${r.source_ref}`;
+  return r.source_ref || r.id;
+}
+
+function runDuration(r) {
+  const start = Date.parse(r.started_at || r.created_at);
+  if (!start || start < 0) return "";
+  const end = Date.parse(r.finished_at);
+  const secs = Math.max(0, Math.round(((end > 0 ? end : Date.now()) - start) / 1000));
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  return `${Math.floor(secs / 3600)}h${Math.floor((secs % 3600) / 60)}m`;
+}
+
+function runRow(r) {
+  const li = document.createElement("li");
+  li.className = "run-row";
+  li.dataset.run = `${r.host}:${r.id}`;
+  li.classList.toggle("active", panes.some((p) => p.view?.type === "mush" && p.view.runId === r.id && (p.view.host || "") === r.host));
+  const dot = document.createElement("span");
+  dot.className = `run-dot ${runState(r)}`;
+  dot.title = r.state;
+  const copy = document.createElement("span");
+  copy.className = "session-copy";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = runLabel(r);
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  const proj = (r.project || "").split("/").filter(Boolean).pop() || "";
+  meta.textContent = [r.host, proj, r.state.replace("_", " "), r.model, runDuration(r), r.verdict && r.verdict !== "-" ? r.verdict : ""]
+    .filter(Boolean).join(" · ");
+  copy.append(name, meta);
+  li.append(dot, copy);
+  li.title = `${r.id}\n${r.project}`;
+  li.addEventListener("click", () => viewerPane().openMush(r.host, r));
+  return li;
 }
 
 function sectionHeader(label, count) {
@@ -1013,6 +1117,7 @@ const PAL_COMMANDS = [
   { name: ":remote",  hint: "add or remove remotes",   run: () => setPalMode("remote") },
   { name: ":diff",    hint: "git diff of session cwd", run: () => { closePalette(); openDiffView(); } },
   { name: ":mush",    hint: "run an agent task here",  run: () => setPalMode("mush") },
+  { name: ":runs",    hint: "open a mush run",         run: () => setPalMode("runs") },
   { name: ":md",      hint: "preview a markdown file", run: () => openMdPicker() },
   { name: ":mouse",   hint: "toggle tmux mouse mode", run: () => { closePalette(); paneFor()?.toggleMouse(); } },
   { name: ":font +",  hint: "bigger text",  keep: true, run: () => setFontSize(fontSize + 1) },
@@ -1046,6 +1151,9 @@ function palItems() {
   if (pal.mode === "pick")
     return allSessions().filter((s) => fuzzy(q)(s.key))
       .map((s) => ({ kind: "session", name: s.key, s }));
+  if (pal.mode === "runs")
+    return allRuns().filter((r) => fuzzy(q)(`${r.host} ${runLabel(r)} ${r.state} ${r.project}`))
+      .map((r) => ({ kind: "run", name: runLabel(r), r }));
   if (pal.mode !== "switch") return [];
   if (q.startsWith(":"))
     return PAL_COMMANDS.filter((c) => c.name.startsWith(q)).map((c) => ({ kind: "command", ...c }));
@@ -1078,6 +1186,10 @@ function renderPalette() {
     } else if (it.kind === "file") {
       label.textContent = it.name;
       right.textContent = "markdown";
+    } else if (it.kind === "run") {
+      const r = it.r;
+      label.textContent = `${{ live: "◐", wait: "✋", ok: "✓", bad: "✕" }[runState(r)]} ${it.name}`;
+      right.textContent = [r.host, (r.project || "").split("/").filter(Boolean).pop(), r.state.replace("_", " ")].filter(Boolean).join(" · ");
     } else {
       label.textContent = `+ create "${it.name}"`;
       label.className = "cmd";
@@ -1106,6 +1218,9 @@ async function palActivate(it) {
     const key = pal.arg;
     closePalette();
     viewerPane().openView({ type: "md", key, path: it.name });
+  } else if (it.kind === "run") {
+    closePalette();
+    viewerPane().openMush(it.r.host, it.r);
   } else {
     await createSession(it.name);
   }
@@ -1277,6 +1392,7 @@ const PAL_MODES = {
   remote:  { prompt: ":remote ❯", ph: "add · rm · off · on", hint: "tab complete · ⏎ run · esc back" },
   mdpick:  { prompt: ":md ❯", ph: "which file?", hint: "↑↓ move · ⏎ preview · esc back" },
   mush:    { prompt: ":mush ❯", ph: "[-m model] task (runs in the focused session's cwd)", hint: "⏎ run · esc back" },
+  runs:    { prompt: ":runs ❯", ph: "which run?", hint: "↑↓ move · ⏎ open · esc back" },
 };
 
 function setPalMode(mode, verb = null, arg = null) {
@@ -1502,6 +1618,7 @@ async function runMushCommand(input) {
     const run = await api(mushApi(host), { method: "POST", body: JSON.stringify({ task, session, model }) });
     closePalette();
     viewerPane().openMush(host, run);
+    refreshSessions();
   } catch (err) { alert(err.message); }
 }
 
@@ -1548,9 +1665,26 @@ function mushRenderer(box, send) {
   function render(env) {
     const d = env.data || {};
     switch (env.type) {
+      case "run_queued":
+        break;
       case "run_started":
         push(el("div", "m-task", d.task || ""));
         break;
+      case "checkpoint":
+      case "run_artifact":
+        break;
+      case "run_state_changed":
+        push(el("div", "m-audit", `state · ${(d.state || "").replace("_", " ")}`));
+        break;
+      case "approval_resolved": {
+        // The decision landed (ours, or someone answering elsewhere — the
+        // CLI, GitHub, another viewer): retire any card still up.
+        if (approvals.childElementCount) {
+          approvals.innerHTML = "";
+          push(el("div", "m-audit", `${d.approved ? "approved" : "denied"}${d.reason ? " · " + d.reason : ""}`));
+        }
+        break;
+      }
       case "step_started":
         breakBlocks(); lastTool = null;
         push(el("div", "m-step", `step ${d.step} · ${d.model || ""}`));
@@ -1605,6 +1739,9 @@ function mushRenderer(box, send) {
           card.remove();
           push(el("div", "m-audit", `${approved ? "approved" : "denied"} · ${d.name}`));
         };
+        // A replayed journal may already carry the answer; the card only
+        // stays up if no approval_resolved follows (the daemon replays in
+        // order, so a stale card is retired within the same burst).
         yes.addEventListener("click", () => answer(true));
         no.addEventListener("click", () => answer(false));
         row.append(yes, no);
@@ -1622,9 +1759,9 @@ function mushRenderer(box, send) {
         push(el("div", "m-done", `done · ${d.steps ?? "?"} steps${d.text ? " — " + d.text : ""}`));
         break;
       case "_exit":
-        if (d.state !== "done") {
-          approvals.innerHTML = "";
-          push(el("div", "m-exit", `run ${d.state}`));
+        approvals.innerHTML = "";
+        if (!RUN_OK.has(d.state)) {
+          push(el("div", "m-exit", `run ${(d.state || "").replace("_", " ")}`));
           if (d.error) push(el("pre", "m-exit-err", d.error.trim()));
         }
         break;
@@ -1640,4 +1777,71 @@ function mushRenderer(box, send) {
 
   function note(text) { push(el("div", "m-note", text)); }
   return { render, note };
+}
+
+// mushRunHeader is the ledger row above the stream: source, model, cost,
+// branch/PR, and the actions mush offers a finished or stuck run.
+function mushRunHeader(host, run, pane) {
+  const el = document.createElement("div");
+  el.className = "m-head";
+  const line = document.createElement("div");
+  line.className = "m-head-line";
+  const actions = document.createElement("div");
+  actions.className = "m-head-actions";
+  const err = document.createElement("div");
+  err.className = "m-head-err";
+  err.hidden = true;
+  el.append(line, actions, err);
+
+  const btn = (label, title, fn) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await fn(); } catch (err) { alert(err.message); }
+      b.disabled = false;
+    });
+    return b;
+  };
+  const post = (rest) => api(mushApi(host, `/${encodeURIComponent(run.id)}${rest}`), { method: "POST" });
+
+  function update(r) {
+    run = r;
+    const cost = r.cost_usd ? `$${r.cost_usd.toFixed(3)}` : "";
+    const tokens = r.tokens_in || r.tokens_out ? `${fmtTokens(r.tokens_in)}/${fmtTokens(r.tokens_out)}` : "";
+    line.textContent = [host, (r.project || "").split("/").filter(Boolean).pop(), r.source, r.model, r.provider,
+      `${r.steps || 0} steps`, tokens, cost, runDuration(r), r.verdict && r.verdict !== "-" ? `verdict ${r.verdict}` : "",
+      r.branch, r.local ? "engine: this daemon" : ""].filter(Boolean).join(" · ");
+    actions.innerHTML = "";
+    if (r.pr_url) {
+      const a = document.createElement("a");
+      a.href = r.pr_url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "open PR";
+      actions.appendChild(a);
+    }
+    const live = RUN_LIVE.has(r.state);
+    if (live && r.local) actions.appendChild(btn("stop", "interrupt this run", () => api(mushApi(host, `/${encodeURIComponent(r.id)}`), { method: "DELETE" })));
+    if (!live) {
+      actions.appendChild(btn("retry", "start a fresh run with the same task (mush run --parent)", async () => {
+        const child = await post("/retry");
+        pane.openMush(host, child);
+      }));
+      if (r.state === "failed" || r.state === "interrupted" || r.state === "blocked") {
+        actions.appendChild(btn("resume", "continue from the last checkpoint (mush resume)", async () => {
+          await post("/resume");
+          pane.msg("resumed — the new run appears in the list shortly");
+          setTimeout(() => { pane.msg(""); refreshSessions(); }, 2500);
+        }));
+      }
+    }
+    err.textContent = r.error || "";
+    err.hidden = !r.error;
+  }
+  update(run);
+  return { el, update };
+}
+
+function fmtTokens(n) {
+  n = n || 0;
+  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${n}`;
 }

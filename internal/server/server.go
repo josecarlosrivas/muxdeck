@@ -24,6 +24,7 @@ import (
 
 	"github.com/josecarlosrivas/muxdeck/internal/agent"
 	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
+	"github.com/josecarlosrivas/muxdeck/internal/mushrun/legacy"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/tmux"
 )
@@ -42,10 +43,13 @@ type Server struct {
 	agents   *agent.Store
 	remotes  *remote.Manager
 	mushruns *mushrun.Manager
+	legacy   *legacy.Manager // the 0.11 engine host, when MUXDECK_MUSH_LEGACY=1
 }
 
-func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager) *Server {
-	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), remotes: remotes, mushruns: mushruns}
+// New builds the server. legacy non-nil routes /api/mush to the 0.11 engine
+// host instead of the ledger-backed viewer.
+func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager, legacyHost *legacy.Manager) *Server {
+	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), remotes: remotes, mushruns: mushruns, legacy: legacyHost}
 	s.mux.Handle("/", http.FileServerFS(static))
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
@@ -59,10 +63,19 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mus
 	s.mux.HandleFunc("GET /api/sessions/{name}/files", s.auth(s.handleFiles))
 	s.mux.HandleFunc("GET /api/sessions/{name}/file", s.auth(s.handleFile))
 	s.mux.HandleFunc("POST /api/agent/status", s.auth(s.handleAgentStatus))
-	s.mux.HandleFunc("GET /api/mush/runs", s.auth(s.handleMushList))
-	s.mux.HandleFunc("POST /api/mush/runs", s.auth(s.handleMushStart))
-	s.mux.HandleFunc("GET /api/mush/runs/{id}/stream", s.auth(s.handleMushStream))
-	s.mux.HandleFunc("DELETE /api/mush/runs/{id}", s.auth(s.handleMushStop))
+	if legacyHost != nil {
+		s.mux.HandleFunc("GET /api/mush/runs", s.auth(s.handleLegacyMushList))
+		s.mux.HandleFunc("POST /api/mush/runs", s.auth(s.handleLegacyMushStart))
+		s.mux.HandleFunc("GET /api/mush/runs/{id}/stream", s.auth(s.handleLegacyMushStream))
+		s.mux.HandleFunc("DELETE /api/mush/runs/{id}", s.auth(s.handleLegacyMushStop))
+	} else {
+		s.mux.HandleFunc("GET /api/mush/runs", s.auth(s.handleMushList))
+		s.mux.HandleFunc("POST /api/mush/runs", s.auth(s.handleMushStart))
+		s.mux.HandleFunc("GET /api/mush/runs/{id}/stream", s.auth(s.handleMushStream))
+		s.mux.HandleFunc("DELETE /api/mush/runs/{id}", s.auth(s.handleMushStop))
+		s.mux.HandleFunc("POST /api/mush/runs/{id}/retry", s.auth(s.handleMushRetry))
+		s.mux.HandleFunc("POST /api/mush/runs/{id}/resume", s.auth(s.handleMushResume))
+	}
 	s.mux.HandleFunc("GET /api/remotes", s.auth(s.handleRemoteList))
 	s.mux.HandleFunc("POST /api/remotes", s.auth(s.handleRemoteAdd))
 	s.mux.HandleFunc("DELETE /api/remotes/{name}", s.auth(s.handleRemoteDelete))
