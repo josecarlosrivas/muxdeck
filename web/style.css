@@ -104,7 +104,30 @@ body {
 #sessions .session-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 #sessions .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #sessions .detail { min-width: 0; display: flex; align-items: center; gap: 7px; overflow: hidden; }
-#sessions .meta { color: var(--fg-dim); font-size: 11px; }
+#sessions .meta {
+  color: var(--fg-dim);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The branch keeps its width while the path beside it gives ground: a
+   truncated path still reads, a truncated branch name does not. */
+#sessions .branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--fg-dim);
+}
+#sessions .branch .icon { width: 11px; height: 11px; flex: none; }
+#sessions .branch.dirty { color: #fbbf24; }
 #sessions .session-actions { display: flex; gap: 5px; opacity: 0; }
 #sessions .kill, #sessions .rename { color: var(--fg-dim); }
 #sessions .kill .icon, #sessions .rename .icon { width: 14px; height: 14px; }

@@ -13,6 +13,9 @@ sessions from the browser.
 - **Session management** — create, kill, rename, drag to reorder, unseen-output
   dots, and a command palette (`⌘K` / `Ctrl+Shift+K`) with fuzzy switching
   and tab completion
+- **Sessions you can tell apart** — each row shows its working directory, the
+  command running there, and the git branch it sits on (marked when the tree
+  is dirty), so a sidebar full of agents reads at a glance
 - **Clipboard that works** — selection copies on release, tmux copy-mode
   yanks land on the system clipboard via OSC 52, and touch devices get a
   paste key; URLs in output are clickable

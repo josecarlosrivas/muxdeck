@@ -3,6 +3,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -41,6 +42,7 @@ type Server struct {
 	token    string
 	foldCase bool // generated codes are matched case-insensitively, GitHub-device-auth style
 	agents   *agent.Store
+	repos    *repoCache
 	remotes  *remote.Manager
 	mushruns *mushrun.Manager
 	legacy   *legacy.Manager // the 0.11 engine host, when MUXDECK_MUSH_LEGACY=1
@@ -49,7 +51,7 @@ type Server struct {
 // New builds the server. legacy non-nil routes /api/mush to the 0.11 engine
 // host instead of the ledger-backed viewer.
 func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager, legacyHost *legacy.Manager) *Server {
-	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), remotes: remotes, mushruns: mushruns, legacy: legacyHost}
+	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), repos: newRepoCache(), remotes: remotes, mushruns: mushruns, legacy: legacyHost}
 	s.mux.Handle("/", http.FileServerFS(static))
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
@@ -260,18 +262,24 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	names := make([]string, len(sessions))
+	cwds := make([]string, 0, len(sessions))
 	for i, sess := range sessions {
 		names[i] = sess.Name
+		if sess.Path != "" {
+			cwds = append(cwds, sess.Path)
+		}
 	}
 	s.agents.Prune(names)
+	s.repos.prune(cwds)
 
 	type listEntry struct {
 		tmux.Session
+		repoState
 		Agent *agent.Status `json:"agent,omitempty"`
 	}
 	out := make([]listEntry, len(sessions))
 	for i, sess := range sessions {
-		out[i] = listEntry{Session: sess}
+		out[i] = listEntry{Session: sess, repoState: s.repos.state(sess.Path)}
 		if st, ok := s.agents.Get(sess.Name); ok {
 			out[i].Agent = &st
 		}
@@ -430,7 +438,17 @@ func sessionCwd(w http.ResponseWriter, r *http.Request) (string, bool) {
 }
 
 func git(cwd string, args ...string) (string, error) {
-	out, err := exec.Command("git", append([]string{"-C", cwd}, args...)...).CombinedOutput()
+	return gitContext(context.Background(), cwd, args...)
+}
+
+func gitContext(ctx context.Context, cwd string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", cwd}, args...)...)
+	// Killing git on a cancelled context does not by itself unblock the read:
+	// anything git spawned that outlives it — a credential helper, a hook —
+	// inherits the output pipe and holds it open. WaitDelay forces the pipe
+	// shut shortly after, so a deadline is one the caller can rely on.
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {

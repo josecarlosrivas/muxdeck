@@ -20,6 +20,7 @@ const ICONS = {
   chevronRight: '<path d="m9 18 6-6-6-6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   linkOff: '<path d="M9 17H7A5 5 0 0 1 7 7"/><path d="M15 7h2a5 5 0 0 1 4 8"/><path d="M8 12h4"/><path d="m2 2 20 20"/>',
+  branch: '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
 };
 
 function icon(name) {
@@ -913,6 +914,13 @@ function sectionHeader(label, count) {
   return li;
 }
 
+// The leaf and its parent are what identify a working directory at sidebar
+// width; the full path stays in the row tooltip.
+function shortPath(p) {
+  const parts = p.split("/").filter(Boolean);
+  return parts.slice(-2).join("/") || p;
+}
+
 function sessionRow(s, attached) {
   const li = document.createElement("li");
   li.dataset.name = s.key;
@@ -944,8 +952,22 @@ function sessionRow(s, attached) {
   detail.className = "detail";
   const meta = document.createElement("span");
   meta.className = "meta";
-  meta.textContent = `${s.windows} window${s.windows === 1 ? "" : "s"}${s.attached > 0 ? " · attached" : ""}`;
+  // Where a session is working says more at a glance than how its windows are
+  // arranged, so the layout counts fall back to the row tooltip, which
+  // already carries them.
+  meta.textContent = s.path
+    ? `${shortPath(s.path)}${s.command ? ` · ${s.command}` : ""}`
+    : `${s.windows} window${s.windows === 1 ? "" : "s"}${s.attached > 0 ? " · attached" : ""}`;
   detail.appendChild(meta);
+
+  if (s.branch) {
+    const branch = document.createElement("span");
+    branch.className = s.dirty ? "branch dirty" : "branch";
+    branch.innerHTML = icon("branch");
+    branch.append(s.dirty ? `${s.branch}*` : s.branch);
+    branch.title = s.dirty ? `${s.branch} · uncommitted changes` : s.branch;
+    detail.appendChild(branch);
+  }
 
   if (s.agent) {
     const badge = document.createElement("span");
@@ -959,7 +981,8 @@ function sessionRow(s, attached) {
     detail.appendChild(badge);
   }
   copy.append(name, detail);
-  li.title = `${s.key} · ${s.windows} window${s.windows === 1 ? "" : "s"} · created ${new Date(s.created).toLocaleString()}${s.attached > 0 ? " · attached" : ""}`;
+  li.title = `${s.key} · ${s.windows} window${s.windows === 1 ? "" : "s"} · created ${new Date(s.created).toLocaleString()}${s.attached > 0 ? " · attached" : ""}` +
+    (s.path ? `\n${s.path}` : "");
 
   const rename = document.createElement("button");
   rename.className = "rename";
