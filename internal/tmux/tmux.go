@@ -51,6 +51,8 @@ type Session struct {
 	Created  time.Time `json:"created"`
 	Attached int       `json:"attached"`
 	Activity int64     `json:"activity"`
+	Command  string    `json:"command,omitempty"`
+	Path     string    `json:"path,omitempty"`
 }
 
 func ValidName(name string) bool { return nameRe.MatchString(name) }
@@ -92,7 +94,57 @@ func List() ([]Session, error) {
 		activity, _ := strconv.ParseInt(f[3], 10, 64)
 		sessions = append(sessions, Session{Name: f[4], Windows: windows, Created: time.Unix(created, 0), Attached: attached, Activity: activity})
 	}
+	if ctx := contexts(); ctx != nil {
+		for i, sess := range sessions {
+			if c, ok := ctx[sess.Name]; ok {
+				sessions[i].Command, sessions[i].Path = c.Command, c.Path
+			}
+		}
+	}
 	return sessions, nil
+}
+
+// paneContext is the active pane's command and working directory, the two facts
+// that say what a session is actually doing.
+type paneContext struct{ Command, Path string }
+
+// contexts reads that pair for every session, keyed by session name.
+//
+// Pane formats resolve against the session's own active pane here, so unlike
+// display-message this works from the daemon with no attached client.
+//
+// Three free-text fields cannot share a "|"-separated line — a path may
+// legitimately contain one — so the two leading fields are byte lengths and
+// the payload is sliced by count instead of split. #{n:...} needs a tmux new
+// enough to have it, which is why this is a second call rather than extra
+// fields on the List format: the session list is load-bearing and must not
+// break to decorate a sidebar. A nil map simply means no decoration.
+func contexts() map[string]paneContext {
+	out, err := exec.Command(Bin, "list-sessions", "-F",
+		"#{n:pane_current_command}|#{n:pane_current_path}|#{pane_current_command}#{pane_current_path}#{session_name}").Output()
+	if err != nil {
+		return nil
+	}
+	return parseContexts(string(out))
+}
+
+func parseContexts(out string) map[string]paneContext {
+	ctx := map[string]paneContext{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		f := strings.SplitN(line, "|", 3)
+		if len(f) != 3 {
+			continue
+		}
+		nCmd, errCmd := strconv.Atoi(f[0])
+		nPath, errPath := strconv.Atoi(f[1])
+		if errCmd != nil || errPath != nil || nCmd < 0 || nPath < 0 || nCmd+nPath > len(f[2]) {
+			continue
+		}
+		if name := f[2][nCmd+nPath:]; name != "" {
+			ctx[name] = paneContext{Command: f[2][:nCmd], Path: f[2][nCmd : nCmd+nPath]}
+		}
+	}
+	return ctx
 }
 
 // EnsureClipboard makes tmux forward copy-mode yanks to the attached client
