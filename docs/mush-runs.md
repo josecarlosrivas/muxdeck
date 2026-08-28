@@ -83,12 +83,3 @@ file is re-read per use. This exists because daemons run under
 launchd/systemd with a bare environment: shell rc files never apply.
 Per-repo `.mush/.env` still works and wins for repo-specific configuration.
 A served run uses the serve's own environment.
-
-## The 0.11 host
-
-`MUXDECK_MUSH_LEGACY=1` restores the previous design for one release:
-muxdeck spawns `mush stdio` per run and keeps the event stream in a 4 MiB
-ring buffer per run. Runs then live in daemon memory (no ledger row of their
-own is required, no `:runs`, no retry/resume) and do not survive restarts.
-It exists for a rollback path while the viewer settles and goes away in the
-release after.
