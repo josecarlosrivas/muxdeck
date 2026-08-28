@@ -3,6 +3,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -437,7 +438,17 @@ func sessionCwd(w http.ResponseWriter, r *http.Request) (string, bool) {
 }
 
 func git(cwd string, args ...string) (string, error) {
-	out, err := exec.Command("git", append([]string{"-C", cwd}, args...)...).CombinedOutput()
+	return gitContext(context.Background(), cwd, args...)
+}
+
+func gitContext(ctx context.Context, cwd string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", cwd}, args...)...)
+	// Killing git on a cancelled context does not by itself unblock the read:
+	// anything git spawned that outlives it — a credential helper, a hook —
+	// inherits the output pipe and holds it open. WaitDelay forces the pipe
+	// shut shortly after, so a deadline is one the caller can rely on.
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {

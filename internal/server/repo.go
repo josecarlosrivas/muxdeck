@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,14 @@ type repoEntry struct {
 }
 
 const repoTTL = 5 * time.Second
+
+// resolveRepo runs on a background goroutine whose completion is what clears
+// the refreshing flag, so a git that never returns — a stalled network mount,
+// a repository whose status walk does not finish — would strand that
+// directory as permanently refreshing and freeze its chip for as long as a
+// session sits there. Every call on this path is therefore bounded; a
+// deadline yields the zero state and the entry retries on the next TTL.
+const repoGitTimeout = 3 * time.Second
 
 func newRepoCache() *repoCache { return &repoCache{m: map[string]repoEntry{}} }
 
@@ -79,7 +88,10 @@ func (c *repoCache) prune(live []string) {
 }
 
 func resolveRepo(cwd string) repoState {
-	branch, err := git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+	ctx, cancel := context.WithTimeout(context.Background(), repoGitTimeout)
+	defer cancel()
+
+	branch, err := gitContext(ctx, cwd, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		// Not a repository, no commits yet, or no git at all — all of which
 		// mean the same thing to the sidebar: nothing to show.
@@ -88,13 +100,13 @@ func resolveRepo(cwd string) repoState {
 	state := repoState{Branch: strings.TrimSpace(branch)}
 	if state.Branch == "HEAD" {
 		// Detached: the short sha is the only name the head still has.
-		if sha, err := git(cwd, "rev-parse", "--short", "HEAD"); err == nil {
+		if sha, err := gitContext(ctx, cwd, "rev-parse", "--short", "HEAD"); err == nil {
 			state.Branch = strings.TrimSpace(sha)
 		}
 	}
 	// --no-optional-locks so polling never contends with the git the user is
 	// running in that same directory.
-	if out, err := git(cwd, "--no-optional-locks", "status", "--porcelain"); err == nil {
+	if out, err := gitContext(ctx, cwd, "--no-optional-locks", "status", "--porcelain"); err == nil {
 		state.Dirty = strings.TrimSpace(out) != ""
 	}
 	return state
