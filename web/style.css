@@ -128,6 +128,22 @@ body {
 }
 #sessions .branch .icon { width: 11px; height: 11px; flex: none; }
 #sessions .branch.dirty { color: #fbbf24; }
+
+/* listening ports (see internal/ports) — sized and truncated like the branch
+   chip so a row with both still gives the path the space it has left */
+#sessions .ports {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--fg-dim);
+}
+#sessions .ports .icon { width: 11px; height: 11px; flex: none; }
 #sessions .session-actions { display: flex; gap: 5px; opacity: 0; }
 #sessions .kill, #sessions .rename { color: var(--fg-dim); }
 #sessions .kill .icon, #sessions .rename .icon { width: 14px; height: 14px; }
