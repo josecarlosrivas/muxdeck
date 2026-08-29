@@ -1,6 +1,9 @@
 package tmux
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The length-prefixed payload exists so that separators and multi-byte
 // characters inside a path or a session name cannot shift the fields, and so
@@ -73,5 +76,16 @@ notapid|bogus
 func TestParsePanePIDsEmpty(t *testing.T) {
 	if got := parsePanePIDs(""); got != nil {
 		t.Errorf("got %#v, want nil", got)
+	}
+}
+
+// The pane target is "=name:" — "=" so tmux cannot prefix-match a different
+// session, ":" so a session name resolves to a pane at all. Both halves are
+// load-bearing for a send, which is remote code execution into a shell.
+func TestSendKeysRejectsBadNames(t *testing.T) {
+	for _, name := range []string{"", "has space", "has/slash", "a:b", strings.Repeat("x", 65)} {
+		if err := SendKeys(name, "x", true); err != ErrBadName {
+			t.Errorf("%q: got %v, want ErrBadName", name, err)
+		}
 	}
 }

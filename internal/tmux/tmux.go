@@ -248,6 +248,34 @@ func SetMouse(name string, on bool) error {
 	return run("set-option", "-t", name, "mouse", v)
 }
 
+// SendKeys types text into a session's active pane, then optionally Enter.
+//
+// -l sends the text literally, so a payload that happens to name a tmux key
+// ("Enter", "C-c") arrives as those characters instead of as that key —
+// which is also why submitting is a separate send and a parameter, rather
+// than something a caller can smuggle into the text. "--" is required, not
+// decorative: without it a text starting with "-" is parsed as a flag and
+// send-keys fails.
+//
+// The pane target is "=name:" rather than "=name": the "=" keeps tmux from
+// prefix-matching a different session, and the trailing ":" is what makes it
+// resolve to that session's current pane at all.
+func SendKeys(name, text string, enter bool) error {
+	if !ValidName(name) {
+		return ErrBadName
+	}
+	target := "=" + name + ":"
+	if text != "" {
+		if err := run("send-keys", "-t", target, "-l", "--", text); err != nil {
+			return err
+		}
+	}
+	if enter {
+		return run("send-keys", "-t", target, "Enter")
+	}
+	return nil
+}
+
 func Kill(name string) error {
 	if !ValidName(name) {
 		return ErrBadName
