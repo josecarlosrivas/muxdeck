@@ -21,6 +21,7 @@ const ICONS = {
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   linkOff: '<path d="M9 17H7A5 5 0 0 1 7 7"/><path d="M15 7h2a5 5 0 0 1 4 8"/><path d="M8 12h4"/><path d="m2 2 20 20"/>',
   branch: '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  plug: '<path d="M9 2v6"/><path d="M15 2v6"/><path d="M6 8h12v4a6 6 0 0 1-6 6 6 6 0 0 1-6-6Z"/><path d="M12 18v4"/>',
 };
 
 function icon(name) {
@@ -967,6 +968,18 @@ function sessionRow(s, attached) {
     branch.append(s.dirty ? `${s.branch}*` : s.branch);
     branch.title = s.dirty ? `${s.branch} · uncommitted changes` : s.branch;
     detail.appendChild(branch);
+  }
+
+  // What a session is serving is the one thing about it you cannot read off
+  // the terminal without going looking, so it earns a chip of its own.
+  if (s.ports?.length) {
+    const ports = document.createElement("span");
+    ports.className = "ports";
+    ports.innerHTML = icon("plug");
+    const shown = s.ports.slice(0, 2).map((p) => `:${p}`).join(" ");
+    ports.append(s.ports.length > 2 ? `${shown} +${s.ports.length - 2}` : shown);
+    ports.title = `listening on ${s.ports.map((p) => `:${p}`).join(", ")}`;
+    detail.appendChild(ports);
   }
 
   if (s.agent) {

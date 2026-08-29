@@ -42,12 +42,13 @@ type Server struct {
 	foldCase bool // generated codes are matched case-insensitively, GitHub-device-auth style
 	agents   *agent.Store
 	repos    *repoCache
+	ports    *portCache
 	remotes  *remote.Manager
 	mushruns *mushrun.Manager
 }
 
 func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager) *Server {
-	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), repos: newRepoCache(), remotes: remotes, mushruns: mushruns}
+	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), repos: newRepoCache(), ports: newPortCache(), remotes: remotes, mushruns: mushruns}
 	s.mux.Handle("/", http.FileServerFS(static))
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
@@ -260,15 +261,19 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	s.agents.Prune(names)
 	s.repos.prune(cwds)
+	listening := s.ports.state()
 
 	type listEntry struct {
 		tmux.Session
 		repoState
+		// Ports the session's process tree is listening on, resolved out of
+		// band; absent until the first refresh lands.
+		Ports []int         `json:"ports,omitempty"`
 		Agent *agent.Status `json:"agent,omitempty"`
 	}
 	out := make([]listEntry, len(sessions))
 	for i, sess := range sessions {
-		out[i] = listEntry{Session: sess, repoState: s.repos.state(sess.Path)}
+		out[i] = listEntry{Session: sess, repoState: s.repos.state(sess.Path), Ports: listening[sess.Name]}
 		if st, ok := s.agents.Get(sess.Name); ok {
 			out[i].Agent = &st
 		}

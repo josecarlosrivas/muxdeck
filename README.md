@@ -14,8 +14,9 @@ sessions from the browser.
   dots, and a command palette (`⌘K` / `Ctrl+Shift+K`) with fuzzy switching
   and tab completion
 - **Sessions you can tell apart** — each row shows its working directory, the
-  command running there, and the git branch it sits on (marked when the tree
-  is dirty), so a sidebar full of agents reads at a glance
+  command running there, the git branch it sits on (marked when the tree is
+  dirty), and any TCP ports its processes are listening on, so a sidebar full
+  of agents reads at a glance
 - **Clipboard that works** — selection copies on release, tmux copy-mode
   yanks land on the system clipboard via OSC 52, and touch devices get a
   paste key; URLs in output are clickable
@@ -196,6 +197,14 @@ token.
 | POST   | `/api/remotes`                | add/update a remote             |
 | DELETE | `/api/remotes/{name}`         | remove a remote                 |
 | ANY    | `/api/remotes/{name}/proxy/…` | reverse proxy to the remote API |
+
+A session in the list carries `name`, `windows`, `created`, `attached` and
+`activity` from tmux; `command` and `path` from its active pane; `branch` and
+`dirty` when that path is inside a git repository; `ports`, the TCP ports its
+process tree is listening on; and `agent`, the last self-reported agent status
+(see [integrations](integrations/)). Everything past the tmux fields is
+decoration: it is resolved out of band on a short TTL and omitted rather than
+waited for, so the list never blocks on git, procfs, or `lsof`.
 
 Attach protocol: client sends JSON text frames `{"type":"input","data":"…"}`
 and `{"type":"resize","cols":N,"rows":N}`; server sends raw terminal output as

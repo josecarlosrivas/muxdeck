@@ -40,3 +40,38 @@ func TestParseContextsRejectsMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePanePIDs(t *testing.T) {
+	got := parsePanePIDs(`4242|build
+4243|build
+4300|deploy|prod
+0|bogus
+-1|bogus
+notapid|bogus
+5000|
+5001
+`)
+	want := map[string][]int{"build": {4242, 4243}, "deploy|prod": {4300}}
+	if len(got) != len(want) {
+		t.Fatalf("got %d sessions, want %d: %#v", len(got), len(want), got)
+	}
+	for name, w := range want {
+		g := got[name]
+		if len(g) != len(w) {
+			t.Errorf("%q: got %v, want %v", name, g, w)
+			continue
+		}
+		for i := range w {
+			if g[i] != w[i] {
+				t.Errorf("%q: got %v, want %v", name, g, w)
+				break
+			}
+		}
+	}
+}
+
+func TestParsePanePIDsEmpty(t *testing.T) {
+	if got := parsePanePIDs(""); got != nil {
+		t.Errorf("got %#v, want nil", got)
+	}
+}

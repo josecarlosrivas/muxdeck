@@ -147,6 +147,40 @@ func parseContexts(out string) map[string]paneContext {
 	return ctx
 }
 
+// PanePIDs lists the process id of every pane, grouped by session — the roots
+// of the process trees each session owns.
+//
+// Numeric field first and the free-text session name last, split once, for the
+// same reason as the session list: a name may legitimately contain the
+// separator, and a name that shifts fields would attribute one session's
+// processes to another.
+func PanePIDs() map[string][]int {
+	out, err := exec.Command(Bin, "list-panes", "-a", "-F", "#{pane_pid}|#{session_name}").Output()
+	if err != nil {
+		return nil
+	}
+	return parsePanePIDs(string(out))
+}
+
+func parsePanePIDs(out string) map[string][]int {
+	panes := map[string][]int{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		pidStr, name, ok := strings.Cut(line, "|")
+		if !ok || name == "" {
+			continue
+		}
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil || pid <= 0 {
+			continue
+		}
+		panes[name] = append(panes[name], pid)
+	}
+	if len(panes) == 0 {
+		return nil
+	}
+	return panes
+}
+
 // EnsureClipboard makes tmux forward copy-mode yanks to the attached client
 // as OSC 52, which the web frontend turns into a browser clipboard write.
 // set-clipboard only takes effect when the outer terminal advertises the Ms
