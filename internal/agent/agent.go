@@ -80,6 +80,12 @@ var (
 	}
 )
 
+// ValidChipIcon and ValidChipColor report membership of those sets, for
+// callers that would rather refuse a bad value than watch it be dropped.
+func ValidChipIcon(name string) bool { return chipIcons[name] }
+
+func ValidChipColor(name string) bool { return chipColors[name] }
+
 // Normalize clamps a reported status to what the sidebar can render. Chips
 // that survive nothing — no value left after trimming — are dropped, so a
 // status whose chips are all unrenderable arrives as an explicit empty list
