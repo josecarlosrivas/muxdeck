@@ -24,6 +24,9 @@ sessions from the browser.
   with backoff (phones background tabs constantly; muxdeck just comes back)
 - **Scrollback search** — find in the current session (`⌘F` /
   `Ctrl+Shift+F`), plus adjustable font size
+- **A CLI in the same binary** — `muxdeck ls`, `status set`, `notify`, `send`
+  drive the running daemon over its HTTP API, so a script on your laptop can
+  report progress into a session, or type into one, on a box across a tunnel
 - **One static binary** — frontend embedded, no runtime dependencies beyond
   `tmux` itself; Linux and macOS, amd64 and arm64
 - **Installable PWA** — home-screen app on iPad/phone, with a touch key bar
@@ -190,6 +193,7 @@ token.
 | GET    | `/api/sessions/{name}/mouse`  | `{"enabled"}` — tmux mouse mode |
 | POST   | `/api/sessions/{name}/mouse`  | `{"enabled"}` → set mouse mode  |
 | GET    | `/api/sessions/{name}/attach` | WebSocket terminal bridge       |
+| POST   | `/api/sessions/{name}/send`   | `{"text","enter"}` → type into it |
 | GET    | `/api/sessions/{name}/diff`   | git diff (worktree vs HEAD)     |
 | GET    | `/api/sessions/{name}/files`  | markdown files under cwd        |
 | GET    | `/api/sessions/{name}/file`   | `?path=` → file content         |
@@ -211,6 +215,40 @@ and `{"type":"resize","cols":N,"rows":N}`; server sends raw terminal output as
 binary frames.
 
 Session names are restricted to `[A-Za-z0-9_-]{1,64}`.
+
+## CLI
+
+The daemon binary is also the client. With no arguments it serves; with a
+command it talks to a running daemon over the same HTTP API the browser uses.
+
+```sh
+muxdeck ls                                  # a table of sessions
+muxdeck ls -json                            # the API response, verbatim
+muxdeck status set build working -progress 0.4 -label tests -chip 'flask:tests=6/12'
+muxdeck status get build
+muxdeck notify build "needs your permission"
+muxdeck send build 'make test'              # types it and presses Enter
+muxdeck send -no-enter build 'make test'    # types it and waits
+muxdeck send build                          # a bare Enter
+```
+
+The daemon to talk to comes from `-url` (default `$MUXDECK_URL`, else
+`http://127.0.0.1:8300`) and `-token` (default `$MUXDECK_TOKEN`).
+
+HTTP rather than a unix socket, which is the usual answer for a local daemon:
+a socket is reachable only from the machine the daemon runs on, and muxdeck's
+premise is that the machine you are looking at is often not the one you are
+on. A session already reachable through a tunnel or an ssh remote is one the
+CLI can drive with no extra plumbing.
+
+`notify` posts `state: "waiting"` — the transition the UI raises a
+notification on — adopting whatever agent name is already reporting for that
+session, so it does not blank the model and spend a statusline has been
+keeping current. `send` is remote code execution into a shell, deliberately:
+it is the power the attach WebSocket has always had, behind the same auth.
+
+`notify` and `send` take their flags before the session name, so a message or
+a payload that starts with `-` stays a message.
 
 ## Viewers
 
@@ -263,6 +301,7 @@ otherwise the user's default server.
 
 ```sh
 go run .                      # serve with live web/ from the embedded FS
+go run . ls                   # drive a daemon that is already running
 go run ./tools/genicons web/icons   # regenerate PWA icons (stdlib only)
 ```
 

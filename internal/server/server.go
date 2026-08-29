@@ -58,6 +58,7 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mus
 	s.mux.HandleFunc("GET /api/sessions/{name}/mouse", s.auth(s.handleMouseGet))
 	s.mux.HandleFunc("POST /api/sessions/{name}/mouse", s.auth(s.handleMouseSet))
 	s.mux.HandleFunc("GET /api/sessions/{name}/attach", s.auth(s.handleAttach))
+	s.mux.HandleFunc("POST /api/sessions/{name}/send", s.auth(s.handleSend))
 	s.mux.HandleFunc("GET /api/sessions/{name}/diff", s.auth(s.handleDiff))
 	s.mux.HandleFunc("GET /api/sessions/{name}/files", s.auth(s.handleFiles))
 	s.mux.HandleFunc("GET /api/sessions/{name}/file", s.auth(s.handleFile))
@@ -325,6 +326,36 @@ func (s *Server) handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.agents.Set(body.Session, body.Status)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleSend types text into a session — what the browser does over the
+// attach socket, without attaching. A one-shot client would resize the
+// session to its own dimensions for as long as it stayed, which is not
+// something a scripted send should do to a layout somebody is looking at.
+//
+// This is remote code execution into a shell, deliberately: it is the power
+// the attach WebSocket has had since the first commit, behind the same auth.
+// enter defaults to true — a send that has to be submitted separately is a
+// send that half the callers will forget to submit.
+func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text  string `json:"text"`
+		Enter *bool  `json:"enter"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	name := r.PathValue("name")
+	if !tmux.Has(name) {
+		http.Error(w, "no such session", http.StatusNotFound)
+		return
+	}
+	if err := tmux.SendKeys(name, body.Text, body.Enter == nil || *body.Enter); err != nil {
+		writeErr(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

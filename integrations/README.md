@@ -77,6 +77,22 @@ The statusline pipe also carries the lines the session has added and removed,
 which the adapter sends as a `diff` chip — a worked example of the chip shape
 and the one number that says how much a long agent run has actually touched.
 
+## Without an adapter
+
+`muxdeck status set` and `muxdeck notify` post to this endpoint from the
+command line, so a shell script, a Makefile, or a CI step can report into the
+sidebar without writing an adapter at all:
+
+```sh
+muxdeck status set build working -progress 0.4 -label "running tests" \
+  -chip 'flask:tests=6/12'
+muxdeck notify build "the migration needs a decision"
+```
+
+`notify` adopts whatever agent name is already reporting for the session, so
+it raises attention without taking the badge over from an adapter that is
+keeping the model and spend current.
+
 ## Other agents
 
 Any tool that can run a shell command on state changes can report — one
