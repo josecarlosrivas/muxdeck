@@ -306,7 +306,7 @@ go run ./tools/genicons web/icons   # regenerate PWA icons (stdlib only)
 ```
 
 Plain `go build` produces the deployable binary. CI runs `go vet`, a build,
-and a `gofmt` check on every push and PR.
+`go test ./...`, and a `gofmt` check on every push and PR.
 
 ## License
 
