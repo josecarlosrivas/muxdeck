@@ -284,14 +284,13 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 // handleAgentStatus ingests self-reported agent state. The payload is
 // display data, not commands — unknown sessions are accepted so a status
 // posted during session startup isn't lost, and Prune reaps them later.
+//
+// The status is decoded by embedding rather than copied field by field, so a
+// field added to agent.Status reaches the API by existing.
 func (s *Server) handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Session string  `json:"session"`
-		Agent   string  `json:"agent"`
-		State   string  `json:"state"`
-		Model   string  `json:"model"`
-		CostUSD float64 `json:"cost_usd"`
-		Note    string  `json:"note"`
+		Session string `json:"session"`
+		agent.Status
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Session == "" || body.Agent == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -305,11 +304,12 @@ func (s *Server) handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": agent.ErrBadState.Error()})
 		return
 	}
-	if len(body.Note) > 200 {
-		body.Note = body.Note[:200]
-	}
-	// State-only posts (hooks) shouldn't blank the model/spend that the
-	// statusline reported a moment earlier.
+	body.Status.Normalize()
+	// One session is reported by more than one caller — a statusline that
+	// knows the model and the spend, hooks that know only the transition —
+	// so a field the caller left out keeps what the last one said rather than
+	// blanking it. Saying so explicitly is what an empty value is for: a zero
+	// progress object, or an empty chip list.
 	if prev, ok := s.agents.Get(body.Session); ok && prev.Agent == body.Agent {
 		if body.Model == "" {
 			body.Model = prev.Model
@@ -317,14 +317,14 @@ func (s *Server) handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 		if body.CostUSD == 0 {
 			body.CostUSD = prev.CostUSD
 		}
+		if body.Progress == nil {
+			body.Progress = prev.Progress
+		}
+		if body.Chips == nil {
+			body.Chips = prev.Chips
+		}
 	}
-	s.agents.Set(body.Session, agent.Status{
-		Agent:   body.Agent,
-		State:   body.State,
-		Model:   body.Model,
-		CostUSD: body.CostUSD,
-		Note:    body.Note,
-	})
+	s.agents.Set(body.Session, body.Status)
 	w.WriteHeader(http.StatusNoContent)
 }
 

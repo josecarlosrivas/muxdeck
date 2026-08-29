@@ -39,11 +39,21 @@ json_escape() { printf '%s' "$1" | jq -Rr @json; }
 case "${1:-}" in
 statusline)
   # Claude Code pipes status JSON on stdin every turn; the line we print is
-  # what the terminal shows. Model + cost also go to muxdeck as "working".
+  # what the terminal shows. Model + cost also go to muxdeck as "working",
+  # along with a chip for the lines this session has touched — the one number
+  # that says how much a long run has actually changed.
   input=$(cat)
   model=$(printf '%s' "$input" | jq -r '.model.display_name // empty')
   cost=$(printf '%s' "$input" | jq -r '.cost.total_cost_usd // 0')
-  post "{\"session\":$(json_escape "$session"),\"agent\":\"claude-code\",\"state\":\"working\",\"model\":$(json_escape "$model"),\"cost_usd\":$cost}"
+  post "$(printf '%s' "$input" | jq -c --arg session "$session" --arg model "$model" '
+    {session: $session, agent: "claude-code", state: "working",
+     model: $model, cost_usd: (.cost.total_cost_usd // 0)}
+    + (((.cost.total_lines_added // 0) + (.cost.total_lines_removed // 0)) as $touched
+       | if $touched > 0
+         then {chips: [{key: "diff",
+                        value: "+\((.cost.total_lines_added // 0))/-\((.cost.total_lines_removed // 0))",
+                        icon: "file"}]}
+         else {} end)')"
   printf '%s · $%.2f\n' "${model:-claude}" "$cost"
   ;;
 state)

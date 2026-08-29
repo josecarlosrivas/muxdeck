@@ -22,6 +22,14 @@ const ICONS = {
   linkOff: '<path d="M9 17H7A5 5 0 0 1 7 7"/><path d="M15 7h2a5 5 0 0 1 4 8"/><path d="M8 12h4"/><path d="m2 2 20 20"/>',
   branch: '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
   plug: '<path d="M9 2v6"/><path d="M15 2v6"/><path d="M6 8h12v4a6 6 0 0 1-6 6 6 6 0 0 1-6-6Z"/><path d="M12 18v4"/>',
+  // the vocabulary an agent may pick from for a status chip; the daemon
+  // drops any name that is not one of these (see internal/agent)
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v5"/><path d="M12 17h.01"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  flask: '<path d="M9 2h6"/><path d="M10 2v6.6L4.6 18A2 2 0 0 0 6.3 21h11.4a2 2 0 0 0 1.7-3L14 8.6V2"/><path d="M7 15h10"/>',
+  coins: '<circle cx="9" cy="9" r="6"/><path d="M18.1 11.4A6 6 0 1 1 11.4 18.1"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>',
 };
 
 function icon(name) {
@@ -922,6 +930,52 @@ function shortPath(p) {
   return parts.slice(-2).join("/") || p;
 }
 
+// agentExtra renders the optional half of a pushed agent status — how far
+// along the work is, and whatever facts the agent chose to publish alongside
+// it. Returns null when there is nothing to show, so the row stays one line.
+function agentExtra(a) {
+  const p = a?.progress;
+  const bar = p && (p.label || p.value > 0);
+  const chips = a?.chips || [];
+  if (!bar && !chips.length) return null;
+
+  const extra = document.createElement("span");
+  extra.className = "detail agent-extra";
+
+  if (bar) {
+    const wrap = document.createElement("span");
+    wrap.className = "progress";
+    const pct = Math.round(Math.min(Math.max(p.value || 0, 0), 1) * 100);
+    const track = document.createElement("span");
+    track.className = "progress-track";
+    const fill = document.createElement("span");
+    fill.className = "progress-fill";
+    fill.style.width = `${pct}%`;
+    track.appendChild(fill);
+    wrap.appendChild(track);
+    if (p.label) {
+      const label = document.createElement("span");
+      label.className = "progress-label";
+      label.textContent = p.label;
+      wrap.appendChild(label);
+    }
+    wrap.title = p.label ? `${p.label} — ${pct}%` : `${pct}%`;
+    extra.appendChild(wrap);
+  }
+
+  for (const c of chips) {
+    const chip = document.createElement("span");
+    chip.className = c.color ? `chip chip-${c.color}` : "chip";
+    // The daemon validates the icon name, but a row can also come from a
+    // remote running a build that knows names this one does not.
+    if (c.icon && ICONS[c.icon]) chip.innerHTML = icon(c.icon);
+    chip.append(c.value);
+    chip.title = c.key ? `${c.key}: ${c.value}` : c.value;
+    extra.appendChild(chip);
+  }
+  return extra;
+}
+
 function sessionRow(s, attached) {
   const li = document.createElement("li");
   li.dataset.name = s.key;
@@ -994,6 +1048,13 @@ function sessionRow(s, attached) {
     detail.appendChild(badge);
   }
   copy.append(name, detail);
+
+  // Progress and chips get a line of their own. The line above is already a
+  // competition between path, branch, ports and badge, and a progress bar
+  // squeezed in beside them is not one anybody can read.
+  const extra = agentExtra(s.agent);
+  if (extra) copy.appendChild(extra);
+
   li.title = `${s.key} · ${s.windows} window${s.windows === 1 ? "" : "s"} · created ${new Date(s.created).toLocaleString()}${s.attached > 0 ? " · attached" : ""}` +
     (s.path ? `\n${s.path}` : "");
 

@@ -592,6 +592,50 @@ body {
 @keyframes agent-pulse {
   50% { opacity: 0.45; }
 }
+/* the optional half of a status: a progress bar and the agent's own chips,
+   on their own line so the line above keeps its room */
+#sessions .agent-extra { gap: 6px; }
+#sessions .progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 10px;
+  color: var(--fg-dim);
+}
+#sessions .progress-track {
+  width: 46px;
+  height: 3px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+#sessions .progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+#sessions .progress-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sessions .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--fg-dim);
+}
+#sessions .chip .icon { width: 11px; height: 11px; flex: none; }
+#sessions .chip-accent { color: var(--accent); }
+#sessions .chip-warn { color: #fbbf24; }
+#sessions .chip-danger { color: var(--danger); }
+#sessions .chip-dim { color: var(--fg-dim); }
+
 #notify.armed { color: var(--accent); }
 
 /* tmux-not-installed empty state */
