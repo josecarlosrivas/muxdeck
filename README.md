@@ -163,6 +163,32 @@ Note: service workers (and therefore installation) require a secure context —
 HTTPS or localhost. Plain-HTTP deployments still work in a normal browser
 tab, including the key bar.
 
+## iPad app (native, sideloaded)
+
+`desktop/` also builds a native iPad client: a Tauri shell with a server
+picker that frames the daemon's web UI full-screen. It is not on the App
+Store; build and install it yourself with Xcode and a paid or free Apple
+developer team:
+
+```sh
+rustup target add aarch64-apple-ios
+cd desktop && npm ci
+npx tauri ios build --export-method debugging      # signs with your team
+xcrun devicectl device install app --device <udid> src-tauri/gen/apple/build/arm64/muxdeck.ipa
+```
+
+`xcrun devicectl list devices` shows the udid of a paired iPad (enable
+Developer Mode on the iPad first). Drive builds from the Tauri CLI —
+`tauri ios build`, or `tauri ios dev --open` when you want Xcode — rather
+than pressing Run in a hand-opened Xcode project: the Xcode script phase
+talks back to the running CLI and fails without it.
+
+**Auth:** the app frames the server cross-origin, and WebKit drops the
+login cookie there, so a token-protected daemon bounces back to the token
+prompt. Put the daemon behind an identity-aware HTTPS proxy instead — a
+loopback bind plus `tailscale serve`, for example — and add that URL in the
+picker.
+
 ## Security model
 
 A browser terminal is remote code execution by design. Deploy accordingly:
