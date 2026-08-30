@@ -11,7 +11,7 @@
   --border: #2e333d;
 }
 
-html, body { height: 100%; }
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 
 body {
   background: var(--bg);

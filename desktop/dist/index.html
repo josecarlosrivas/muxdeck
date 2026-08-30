@@ -20,8 +20,10 @@
     --sar: env(safe-area-inset-right, 0px);
   }
   * { box-sizing: border-box; margin: 0; }
-  html, body { height: 100%; }
+  /* iOS: the shell never scrolls, and the web view must not rubber-band */
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
   body {
+    position: fixed; inset: 0;
     background: var(--bg);
     color: var(--fg);
     font-family: "SF Mono", Menlo, Monaco, monospace;
@@ -71,7 +73,10 @@
   #view {
     position: fixed; inset: 0; display: none;
     background: #000;
-    padding: var(--sat) var(--sar) 0 var(--sal);
+    /* the framed page cannot see env(safe-area-inset-*) itself, so the
+       shell reserves every edge — bottom included, or the tmux status
+       line lands under the home indicator */
+    padding: var(--sat) var(--sar) var(--sab) var(--sal);
   }
   body.connected #view { display: block; }
   body.connected #picker { display: none; }
