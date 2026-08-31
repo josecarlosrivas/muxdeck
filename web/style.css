@@ -13,6 +13,14 @@
 
 html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 
+/* Native scrollbars paint an opaque light track on macOS (the xterm
+   viewport keeps overflow-y: scroll); themed ones render dark everywhere. */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+html { scrollbar-color: var(--border) transparent; }
+
 body {
   background: var(--bg);
   color: var(--fg);
