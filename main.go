@@ -124,8 +124,13 @@ func serve() {
 	}
 
 	token, generated := resolveToken(*tokenFlag, *addr, *noAuth)
+	if st := relaym.Status(); st.Configured && !st.Off && token == "" && !*noAuth {
+		// A configured tunnel publishes this daemon; never come up authless.
+		// Same treatment a non-loopback bind gets: generate an access code.
+		token, generated = genCode(8), true
+	}
 	srv := server.New(static, token, generated, remotes, mushruns, relaym)
-	relaym.Start(srv, log.Printf)
+	relaym.Start(srv, token != "", log.Printf)
 	if st := relaym.Status(); st.Configured && !st.Off {
 		log.Printf("relay: dialing %s", st.URL)
 	}

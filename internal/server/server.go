@@ -679,6 +679,13 @@ func (s *Server) handleRelaySet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	// Enabling the tunnel on an authless daemon would publish an
+	// unauthenticated terminal; only off:true is allowed then.
+	enabling := body.URL != nil || (body.Off != nil && !*body.Off)
+	if enabling && s.token == "" {
+		http.Error(w, "the daemon has no access token, and the relay would expose it publicly — restart with -token auto (or MUXDECK_TOKEN=auto), then retry", http.StatusBadRequest)
+		return
+	}
 	var err error
 	switch {
 	case body.URL != nil:
