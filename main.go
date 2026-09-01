@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"embed"
 	"flag"
@@ -77,7 +76,7 @@ func serve() {
 	noAuth := flag.Bool("no-auth", os.Getenv("MUXDECK_NO_AUTH") != "", "allow unauthenticated access on non-loopback binds")
 	tlsCert := flag.String("tls-cert", os.Getenv("MUXDECK_TLS_CERT"), "TLS certificate file; serve HTTPS when set with -tls-key")
 	tlsKey := flag.String("tls-key", os.Getenv("MUXDECK_TLS_KEY"), "TLS key file")
-	relayURL := flag.String("relay-url", os.Getenv("MUXDECK_RELAY_URL"), "relay tunnel URL (wss://relay.example/tunnel); dial out and serve through it")
+	relayURL := flag.String("relay-url", os.Getenv("MUXDECK_RELAY_URL"), "relay tunnel URL (wss://relay.example/tunnel); session-only override of the relay config")
 	relayKey := flag.String("relay-key", os.Getenv("MUXDECK_RELAY_KEY"), "credential presented to the relay")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
@@ -116,16 +115,19 @@ func serve() {
 		os.Exit(0)
 	}()
 
-	token, generated := resolveToken(*tokenFlag, *addr, *noAuth)
-	srv := server.New(static, token, generated, remotes, mushruns)
-
+	relaym, err := relay.LoadManager(envOr("MUXDECK_RELAY_CONFIG", relay.DefaultConfigPath()))
+	if err != nil {
+		log.Fatal(err)
+	}
 	if *relayURL != "" {
-		go func() {
-			if err := relay.Run(context.Background(), *relayURL, *relayKey, srv, log.Printf); err != nil {
-				log.Printf("relay: %v", err)
-			}
-		}()
-		log.Printf("relay: dialing %s", *relayURL)
+		relaym.Override(*relayURL, *relayKey)
+	}
+
+	token, generated := resolveToken(*tokenFlag, *addr, *noAuth)
+	srv := server.New(static, token, generated, remotes, mushruns, relaym)
+	relaym.Start(srv, log.Printf)
+	if st := relaym.Status(); st.Configured && !st.Off {
+		log.Printf("relay: dialing %s", st.URL)
 	}
 
 	log.Printf("muxdeck %s listening on %s", version, *addr)

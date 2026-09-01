@@ -1,11 +1,10 @@
 package relay
 
 import (
-	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -61,11 +60,37 @@ func waitFor(t *testing.T, url string, want int) {
 	t.Fatalf("%s never returned %d", url, want)
 }
 
+// startManager wires a Manager at a temp config path to the relay under test.
+func startManager(t *testing.T, wsURL, key string, handler http.Handler) *Manager {
+	t.Helper()
+	m, err := LoadManager(filepath.Join(t.TempDir(), "relay.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Start(handler, t.Logf)
+	if err := m.Set(Config{URL: wsURL, Key: key}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.SetOff(true) })
+	return m
+}
+
+func waitState(t *testing.T, m *Manager, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if m.Status().State == want {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("state never became %q (is %q, err %q)", want, m.Status().State, m.Status().Error)
+}
+
 func TestProxyThroughTunnel(t *testing.T) {
 	ts, wsURL := startRelay(t, "sekrit")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go Run(ctx, wsURL, "sekrit", daemonHandler(), t.Logf)
+	m := startManager(t, wsURL, "sekrit", daemonHandler())
+	waitState(t, m, "connected")
 
 	waitFor(t, ts.URL+"/echo", http.StatusOK)
 	res, err := http.Get(ts.URL + "/echo")
@@ -97,17 +122,22 @@ func TestProxyThroughTunnel(t *testing.T) {
 		t.Fatalf("ws echo: got %q", msg)
 	}
 
-	// Tunnel down: the relay answers 503, not a hang.
-	cancel()
+	// Tunnel off: the relay answers 503, not a hang.
+	m.SetOff(true)
+	waitState(t, m, "off")
 	waitFor(t, ts.URL+"/echo", http.StatusServiceUnavailable)
 }
 
 func TestDialRejectedIsPermanent(t *testing.T) {
 	_, wsURL := startRelay(t, "sekrit")
-	err := Run(context.Background(), wsURL, "wrong", daemonHandler(), t.Logf)
-	if !errors.Is(err, ErrRevoked) {
-		t.Fatalf("want ErrRevoked, got %v", err)
+	m := startManager(t, wsURL, "wrong", daemonHandler())
+	waitState(t, m, "rejected")
+
+	// "on" is the re-arm: it dials again (and is rejected again here).
+	if err := m.SetOff(false); err != nil {
+		t.Fatal(err)
 	}
+	waitState(t, m, "rejected")
 }
 
 func TestNoDaemonIs503(t *testing.T) {
@@ -124,18 +154,16 @@ func TestNoDaemonIs503(t *testing.T) {
 
 func TestRedialReplacesDaemon(t *testing.T) {
 	ts, wsURL := startRelay(t, "sekrit")
-	ctx1, cancel1 := context.WithCancel(context.Background())
-	defer cancel1()
-	go Run(ctx1, wsURL, "sekrit", daemonHandler(), t.Logf)
+	m1 := startManager(t, wsURL, "sekrit", daemonHandler())
+	waitState(t, m1, "connected")
 	waitFor(t, ts.URL+"/echo", http.StatusOK)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /echo", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "second")
 	})
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
-	go Run(ctx2, wsURL, "sekrit", mux, t.Logf)
+	m2 := startManager(t, wsURL, "sekrit", mux)
+	waitState(t, m2, "connected")
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -150,4 +178,33 @@ func TestRedialReplacesDaemon(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("second daemon never took over")
+}
+
+func TestConfigRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "relay.json")
+	m, err := LoadManager(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := m.Status(); st.Configured || st.State != "idle" {
+		t.Fatalf("fresh manager: %+v", st)
+	}
+	if err := m.Set(Config{URL: "nope://x"}); err == nil {
+		t.Fatal("bad scheme accepted")
+	}
+	if err := m.Set(Config{URL: "wss://relay.example/tunnel", Key: "k"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetOff(true); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := LoadManager(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := again.Status()
+	if !st.Configured || st.URL != "wss://relay.example/tunnel" || !st.Off {
+		t.Fatalf("reloaded config: %+v", st)
+	}
 }
