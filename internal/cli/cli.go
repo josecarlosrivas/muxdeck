@@ -92,6 +92,9 @@ func usage(w io.Writer) {
   send [flags] <session> [text]    type text into a session
   doctor                           check macOS folder-privacy (TCC) access
 
+The daemon also ships the relay: "muxdeck relay-server" runs a self-hosted
+rendezvous (see design/relay.md); the daemon dials one with -relay-url.
+
 Run "muxdeck <command> -h" for a command's flags. notify and send take
 theirs first, so a message that starts with "-" stays a message.
 With no command, muxdeck serves; run "muxdeck -h" for the daemon's flags.

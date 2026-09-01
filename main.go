@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"flag"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/josecarlosrivas/muxdeck/internal/cli"
 	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
+	"github.com/josecarlosrivas/muxdeck/internal/relay"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/server"
 )
@@ -32,10 +34,41 @@ var version = "dev"
 // muxdeck already is, which on a box you reached to look at its sessions is
 // the only place it is any use.
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "relay-server" {
+		relayServe(os.Args[2:])
+		return
+	}
 	if cli.Selected(os.Args[1:]) {
 		os.Exit(cli.Run(os.Args[1:]))
 	}
 	serve()
+}
+
+// relayServe runs the self-hosted relay: one binary, same as the daemon.
+// TLS works exactly like the daemon's: bring cert files, or terminate in
+// front (ACME on your edge).
+func relayServe(args []string) {
+	fs := flag.NewFlagSet("relay-server", flag.ExitOnError)
+	addr := fs.String("addr", envOr("MUXDECK_RELAY_ADDR", "127.0.0.1:8340"), "listen address")
+	secret := fs.String("secret", os.Getenv("MUXDECK_RELAY_SECRET"), "shared secret the daemon dials with (required)")
+	tlsCert := fs.String("tls-cert", os.Getenv("MUXDECK_RELAY_TLS_CERT"), "TLS certificate file; serve HTTPS when set with -tls-key")
+	tlsKey := fs.String("tls-key", os.Getenv("MUXDECK_RELAY_TLS_KEY"), "TLS key file")
+	fs.Parse(args)
+	if *secret == "" {
+		log.Fatal("relay-server: -secret (or MUXDECK_RELAY_SECRET) is required")
+	}
+	srv := relay.NewServer(*secret)
+	log.Printf("muxdeck relay %s listening on %s", version, *addr)
+	var err error
+	if *tlsCert != "" || *tlsKey != "" {
+		if *tlsCert == "" || *tlsKey == "" {
+			log.Fatal("-tls-cert and -tls-key must be set together")
+		}
+		err = http.ListenAndServeTLS(*addr, *tlsCert, *tlsKey, srv)
+	} else {
+		err = http.ListenAndServe(*addr, srv)
+	}
+	log.Fatal(err)
 }
 
 func serve() {
@@ -44,6 +77,8 @@ func serve() {
 	noAuth := flag.Bool("no-auth", os.Getenv("MUXDECK_NO_AUTH") != "", "allow unauthenticated access on non-loopback binds")
 	tlsCert := flag.String("tls-cert", os.Getenv("MUXDECK_TLS_CERT"), "TLS certificate file; serve HTTPS when set with -tls-key")
 	tlsKey := flag.String("tls-key", os.Getenv("MUXDECK_TLS_KEY"), "TLS key file")
+	relayURL := flag.String("relay-url", os.Getenv("MUXDECK_RELAY_URL"), "relay tunnel URL (wss://relay.example/tunnel); dial out and serve through it")
+	relayKey := flag.String("relay-key", os.Getenv("MUXDECK_RELAY_KEY"), "credential presented to the relay")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -83,6 +118,15 @@ func serve() {
 
 	token, generated := resolveToken(*tokenFlag, *addr, *noAuth)
 	srv := server.New(static, token, generated, remotes, mushruns)
+
+	if *relayURL != "" {
+		go func() {
+			if err := relay.Run(context.Background(), *relayURL, *relayKey, srv, log.Printf); err != nil {
+				log.Printf("relay: %v", err)
+			}
+		}()
+		log.Printf("relay: dialing %s", *relayURL)
+	}
 
 	log.Printf("muxdeck %s listening on %s", version, *addr)
 	for _, u := range urls(scheme, *addr) {
