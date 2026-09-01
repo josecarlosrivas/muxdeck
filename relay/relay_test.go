@@ -69,7 +69,7 @@ func startManager(t *testing.T, wsURL, key string, handler http.Handler) *Manage
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Start(handler, t.Logf)
+	m.Start(handler, true, t.Logf)
 	if err := m.Set(Config{URL: wsURL, Key: key}); err != nil {
 		t.Fatal(err)
 	}
@@ -328,4 +328,21 @@ func doHost(t *testing.T, base, host string) (*http.Response, error) {
 	}
 	req.Host = host
 	return http.DefaultClient.Do(req)
+}
+
+func TestUnsecuredDaemonIsBlocked(t *testing.T) {
+	_, wsURL := startRelay(t, "sekrit")
+	m, err := LoadManager(filepath.Join(t.TempDir(), "relay.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Start(daemonHandler(), false, t.Logf) // authless daemon
+	if err := m.Set(Config{URL: wsURL, Key: "sekrit"}); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, m, "blocked") // never dials
+
+	// Securing the daemon (restart with a token) unblocks the same config.
+	m.Start(daemonHandler(), true, t.Logf)
+	waitState(t, m, "connected")
 }

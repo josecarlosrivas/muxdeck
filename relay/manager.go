@@ -39,7 +39,7 @@ type Status struct {
 	Configured bool   `json:"configured"`
 	URL        string `json:"url,omitempty"`
 	Off        bool   `json:"off,omitempty"`
-	State      string `json:"state"` // "idle" | "off" | "dialing" | "connected" | "down" | "rejected"
+	State      string `json:"state"` // "idle" | "off" | "blocked" | "dialing" | "connected" | "down" | "rejected"
 	Error      string `json:"error,omitempty"`
 }
 
@@ -50,6 +50,7 @@ type Manager struct {
 	cfg        Config
 	overridden bool // flag-provided config is session-only, never saved
 	handler    http.Handler
+	secured    bool // the daemon has an access token; a tunnel must never expose an authless daemon
 	logf       func(string, ...any)
 	cancel     context.CancelFunc
 	state      string
@@ -100,10 +101,14 @@ func (m *Manager) Override(rawURL, key string) {
 }
 
 // Start begins dialing if the config says to. handler is what the tunnel
-// serves — the daemon's own mux.
-func (m *Manager) Start(handler http.Handler, logf func(string, ...any)) {
+// serves — the daemon's own mux. secured says the daemon requires an access
+// token: a tunnel publishes the daemon, so an authless one is never dialed
+// (state "blocked") — otherwise anyone who learns the relay name gets an
+// unauthenticated terminal.
+func (m *Manager) Start(handler http.Handler, secured bool, logf func(string, ...any)) {
 	m.mu.Lock()
 	m.handler = handler
+	m.secured = secured
 	if logf != nil {
 		m.logf = logf
 	}
@@ -172,6 +177,9 @@ func (m *Manager) restart() {
 		m.state, m.lastErr = "idle", ""
 	case cfg.Off:
 		m.state, m.lastErr = "off", ""
+	case !m.secured:
+		m.state, m.lastErr = "blocked", "daemon has no access token; restart with -token auto to use the relay"
+		logf("relay: tunnel blocked — the daemon has no access token and a tunnel would expose it publicly; restart with -token auto (or MUXDECK_TOKEN=auto)")
 	default:
 		ctx, cancel := context.WithCancel(context.Background())
 		m.cancel = cancel
