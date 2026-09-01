@@ -46,6 +46,17 @@ type Authenticator interface {
 // Router maps an incoming browser request to the daemon key that serves it.
 type Router func(r *http.Request) string
 
+// ClientAuthenticator authorizes a proxied client request for the daemon
+// key it routes to — the gate that lets a tokenless daemon sit behind the
+// relay. nil error admits the request; ErrReject answers 401 (bad or
+// missing credential); any other error answers 503 (couldn't check right
+// now — the client may retry). Callers present the bearer from the
+// request's Authorization header; per-request caching is the
+// implementation's concern.
+type ClientAuthenticator interface {
+	ClientAuth(ctx context.Context, bearer, key string) error
+}
+
 // StaticAuth admits one shared secret and routes every request to the one
 // daemon it accepts: the self-hosted, single-tenant case.
 type StaticAuth struct{ Secret string }
@@ -67,8 +78,9 @@ type tunnel struct {
 // tunnel their Host routes to. Self-host is one key (""), one daemon; hosted
 // keys by relay name and serves many.
 type Server struct {
-	auth   Authenticator
-	router Router
+	auth       Authenticator
+	router     Router
+	clientAuth ClientAuthenticator
 
 	mu      sync.Mutex
 	tunnels map[string]*tunnel
@@ -85,6 +97,12 @@ func New(auth Authenticator, router Router) *Server {
 func NewServer(secret string) *Server {
 	return New(StaticAuth{Secret: secret}, func(*http.Request) string { return "" })
 }
+
+// SetClientAuth makes the relay a gate: every proxied request (WebSocket
+// upgrades included) must carry a bearer the authenticator admits for its
+// route key. Without it the relay proxies unauthenticated and the daemon's
+// own token is the only gate — the self-hosted default.
+func (s *Server) SetClientAuth(a ClientAuthenticator) { s.clientAuth = a }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
@@ -174,6 +192,17 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	key := s.router(r)
+	if s.clientAuth != nil {
+		err := s.clientAuth.ClientAuth(r.Context(), bearer(r), key)
+		if errors.Is(err, ErrReject) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if err != nil {
+			http.Error(w, "relay: could not verify credential", http.StatusServiceUnavailable)
+			return
+		}
+	}
 	s.mu.Lock()
 	t := s.tunnels[key]
 	s.mu.Unlock()

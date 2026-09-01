@@ -671,18 +671,22 @@ func (s *Server) handleRelayStatus(w http.ResponseWriter, r *http.Request) {
 // the credential, and on is also the re-arm after a rejection.
 func (s *Server) handleRelaySet(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		URL *string `json:"url"`
-		Key *string `json:"key"`
-		Off *bool   `json:"off"`
+		URL   *string `json:"url"`
+		Key   *string `json:"key"`
+		Off   *bool   `json:"off"`
+		Gated *bool   `json:"gated"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	// Enabling the tunnel on an authless daemon would publish an
-	// unauthenticated terminal; only off:true is allowed then.
+	// unauthenticated terminal; only off:true is allowed then. A gated
+	// relay authenticates clients itself, so it may front a tokenless
+	// daemon — gated comes from the claim response, never assumed.
 	enabling := body.URL != nil || (body.Off != nil && !*body.Off)
-	if enabling && s.token == "" {
+	gated := body.Gated != nil && *body.Gated || body.Gated == nil && s.relaym.Status().Gated
+	if enabling && s.token == "" && !gated {
 		http.Error(w, "the daemon has no access token, and the relay would expose it publicly — restart with -token auto (or MUXDECK_TOKEN=auto), then retry", http.StatusBadRequest)
 		return
 	}
@@ -695,6 +699,9 @@ func (s *Server) handleRelaySet(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Off != nil {
 			cfg.Off = *body.Off
+		}
+		if body.Gated != nil {
+			cfg.Gated = *body.Gated
 		}
 		err = s.relaym.Set(cfg)
 	case body.Off != nil:
