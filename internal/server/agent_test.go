@@ -15,7 +15,7 @@ import (
 // neither the static FS nor the remote and mush managers.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	return New(nil, "", false, nil, nil)
+	return New(nil, "", false, nil, nil, nil)
 }
 
 func postStatus(t *testing.T, s *Server, body string) int {

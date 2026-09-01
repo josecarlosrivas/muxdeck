@@ -23,6 +23,7 @@ var commands = map[string]func(*env, []string) error{
 	"notify": runNotify,
 	"send":   runSend,
 	"doctor": runDoctor,
+	"relay":  runRelay,
 }
 
 // Selected reports whether the process arguments are meant for the CLI.
@@ -91,9 +92,13 @@ func usage(w io.Writer) {
   notify [flags] <session> <msg>   raise the operator's attention on a session
   send [flags] <session> [text]    type text into a session
   doctor                           check macOS folder-privacy (TCC) access
+  relay                            show relay tunnel state
+  relay set <wss-url> [key]        configure the tunnel and dial
+  relay off|on                     pause / resume (on re-arms after reject)
+  relay setup <account-url>        claim this daemon with a hosted relay
 
-The daemon also ships the relay: "muxdeck relay-server" runs a self-hosted
-rendezvous (see design/relay.md); the daemon dials one with -relay-url.
+The daemon also ships the relay rendezvous itself: "muxdeck relay-server"
+runs a self-hosted one (see design/relay.md).
 
 Run "muxdeck <command> -h" for a command's flags. notify and send take
 theirs first, so a message that starts with "-" stays a message.

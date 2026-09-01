@@ -25,6 +25,7 @@ import (
 
 	"github.com/josecarlosrivas/muxdeck/internal/agent"
 	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
+	"github.com/josecarlosrivas/muxdeck/internal/relay"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/tcc"
 	"github.com/josecarlosrivas/muxdeck/internal/tmux"
@@ -46,10 +47,11 @@ type Server struct {
 	ports    *portCache
 	remotes  *remote.Manager
 	mushruns *mushrun.Manager
+	relaym   *relay.Manager
 }
 
-func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager) *Server {
-	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), repos: newRepoCache(), ports: newPortCache(), remotes: remotes, mushruns: mushruns}
+func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager, relaym *relay.Manager) *Server {
+	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), repos: newRepoCache(), ports: newPortCache(), remotes: remotes, mushruns: mushruns, relaym: relaym}
 	s.mux.Handle("/", http.FileServerFS(static))
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
@@ -71,6 +73,8 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mus
 	s.mux.HandleFunc("DELETE /api/mush/runs/{id}", s.auth(s.handleMushStop))
 	s.mux.HandleFunc("POST /api/mush/runs/{id}/retry", s.auth(s.handleMushRetry))
 	s.mux.HandleFunc("POST /api/mush/runs/{id}/resume", s.auth(s.handleMushResume))
+	s.mux.HandleFunc("GET /api/relay", s.auth(s.handleRelayStatus))
+	s.mux.HandleFunc("POST /api/relay", s.auth(s.handleRelaySet))
 	s.mux.HandleFunc("GET /api/remotes", s.auth(s.handleRemoteList))
 	s.mux.HandleFunc("POST /api/remotes", s.auth(s.handleRemoteAdd))
 	s.mux.HandleFunc("DELETE /api/remotes/{name}", s.auth(s.handleRemoteDelete))
@@ -654,4 +658,51 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// --- relay tunnel ---
+
+func (s *Server) handleRelayStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.relaym.Status())
+}
+
+// handleRelaySet applies tunnel configuration. A body with a url (re)configures
+// and redials; {"off":true|false} alone toggles the existing config — off keeps
+// the credential, and on is also the re-arm after a rejection.
+func (s *Server) handleRelaySet(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		URL *string `json:"url"`
+		Key *string `json:"key"`
+		Off *bool   `json:"off"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var err error
+	switch {
+	case body.URL != nil:
+		cfg := relay.Config{URL: *body.URL}
+		if body.Key != nil {
+			cfg.Key = *body.Key
+		}
+		if body.Off != nil {
+			cfg.Off = *body.Off
+		}
+		err = s.relaym.Set(cfg)
+	case body.Off != nil:
+		err = s.relaym.SetOff(*body.Off)
+	default:
+		http.Error(w, "nothing to set", http.StatusBadRequest)
+		return
+	}
+	if errors.Is(err, relay.ErrBadConfig) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.relaym.Status())
 }

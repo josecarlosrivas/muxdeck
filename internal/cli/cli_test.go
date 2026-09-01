@@ -116,6 +116,19 @@ func newStub(t *testing.T, sessions ...listEntry) *stub {
 		s.posted = append(s.posted, body)
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("GET /api/relay", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"configured": true, "url": "wss://r.example/tunnel", "state": "connected",
+		})
+	})
+	mux.HandleFunc("POST /api/relay", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		s.posted = append(s.posted, body)
+		json.NewEncoder(w).Encode(map[string]any{
+			"configured": true, "url": body["url"], "state": "dialing",
+		})
+	})
 	mux.HandleFunc("GET /api/doctor", func(w http.ResponseWriter, r *http.Request) {
 		if s.doctor == nil {
 			s.doctor = map[string]any{"supported": false}
@@ -337,5 +350,38 @@ func TestDoctorUnsupported(t *testing.T) {
 	}
 	if !strings.Contains(out, "not on macOS") {
 		t.Errorf("output missing platform note:\n%s", out)
+	}
+}
+
+func TestRelayStatus(t *testing.T) {
+	s := newStub(t)
+	out, code := s.run(t, "relay")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(out, "connected") || !strings.Contains(out, "wss://r.example/tunnel") {
+		t.Fatalf("status output: %q", out)
+	}
+}
+
+func TestRelaySet(t *testing.T) {
+	s := newStub(t)
+	out, code := s.run(t, "relay", "set", "wss://r.example/tunnel", "sekrit")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	if len(s.posted) != 1 || s.posted[0]["url"] != "wss://r.example/tunnel" || s.posted[0]["key"] != "sekrit" {
+		t.Fatalf("posted: %+v", s.posted)
+	}
+}
+
+func TestRelayToggle(t *testing.T) {
+	s := newStub(t)
+	_, code := s.run(t, "relay", "off")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if len(s.posted) != 1 || s.posted[0]["off"] != true {
+		t.Fatalf("posted: %+v", s.posted)
 	}
 }
