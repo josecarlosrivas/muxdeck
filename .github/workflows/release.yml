@@ -157,3 +157,35 @@ jobs:
           dmg=$(ls desktop/muxdeck_*.dmg)
           cp "$dmg" muxdeck_macos_arm64.dmg
           gh release upload "$RELEASE_TAG" "$dmg" muxdeck_macos_arm64.dmg --clobber
+      - name: Sign and notarize daemon binaries
+        # The release job ships bare Go builds (ad-hoc linker signatures), so
+        # macOS keys TCC grants to the cdhash and drops them on every upgrade.
+        # Re-sign with the Developer ID (stable identifier + team) and
+        # notarize, then clobber the unsigned assets. Keychain comes from the
+        # dmg signing step above.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          key="$RUNNER_TEMP/AuthKey.p8"
+          if printf '%s' "$APPLE_API_KEY_CONTENT" | grep -q "BEGIN PRIVATE KEY"; then
+            printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$key"
+          else
+            printf '%s' "$APPLE_API_KEY_CONTENT" | base64 --decode > "$key"
+          fi
+          mkdir daemon-signing && cd daemon-signing
+          gh release download "$RELEASE_TAG" -p 'muxdeck-darwin-*'
+          for bin in muxdeck-darwin-*; do
+            codesign --force --options runtime --timestamp \
+              --identifier com.muxdeck.daemon \
+              --sign "$APPLE_SIGNING_IDENTITY" "$bin"
+            codesign --verify --verbose=2 "$bin"
+          done
+          zip daemon-binaries.zip muxdeck-darwin-*
+          xcrun notarytool submit daemon-binaries.zip \
+            --key "$key" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
+            --wait
+          gh release upload "$RELEASE_TAG" muxdeck-darwin-* --clobber
