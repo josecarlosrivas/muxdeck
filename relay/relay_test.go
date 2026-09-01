@@ -346,3 +346,87 @@ func TestUnsecuredDaemonIsBlocked(t *testing.T) {
 	m.Start(daemonHandler(), true, t.Logf)
 	waitState(t, m, "connected")
 }
+
+// A gated relay authenticates clients itself, so a tokenless daemon may
+// dial when the config says so.
+func TestGatedRelayAllowsTokenlessDaemon(t *testing.T) {
+	_, wsURL := startRelay(t, "sekrit")
+	m, err := LoadManager(filepath.Join(t.TempDir(), "relay.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Start(daemonHandler(), false, t.Logf) // authless daemon
+	if err := m.Set(Config{URL: wsURL, Key: "sekrit", Gated: true}); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, m, "connected")
+	t.Cleanup(func() { m.SetOff(true) })
+}
+
+type fakeClientAuth struct{ err error }
+
+func (a fakeClientAuth) ClientAuth(_ context.Context, bearer, key string) error {
+	if a.err != nil {
+		return a.err
+	}
+	if bearer != "good" || key != "" {
+		return ErrReject
+	}
+	return nil
+}
+
+func TestClientAuthGatesProxy(t *testing.T) {
+	srv := NewServer("sekrit")
+	srv.SetClientAuth(fakeClientAuth{})
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/tunnel"
+	m := startManager(t, wsURL, "sekrit", daemonHandler())
+	waitState(t, m, "connected")
+
+	get := func(bearer string) int {
+		req, err := http.NewRequest("GET", ts.URL+"/echo", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+
+	waitFor(t, ts.URL+"/relay/healthz", http.StatusOK)
+	if code := get(""); code != http.StatusUnauthorized {
+		t.Fatalf("no bearer: got %d, want 401", code)
+	}
+	if code := get("bad"); code != http.StatusUnauthorized {
+		t.Fatalf("bad bearer: got %d, want 401", code)
+	}
+	if code := get("good"); code != http.StatusOK {
+		t.Fatalf("good bearer: got %d, want 200", code)
+	}
+
+	// WebSocket upgrades pass the same gate: the app's dialer sets the
+	// Authorization header.
+	hdr := http.Header{"Origin": {ts.URL}, "Authorization": {"Bearer good"}}
+	c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/ws", hdr)
+	if err != nil {
+		t.Fatalf("ws dial with bearer: %v", err)
+	}
+	c.Close()
+	if _, res, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/ws", http.Header{"Origin": {ts.URL}}); err == nil || res == nil || res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("ws dial without bearer must 401 (err %v)", err)
+	}
+
+	// A transient verifier failure is 503 — the client retries, nobody is
+	// signed out by a control-plane blip.
+	srv.SetClientAuth(fakeClientAuth{err: errors.New("boom")})
+	if code := get("good"); code != http.StatusServiceUnavailable {
+		t.Fatalf("transient auth error: got %d, want 503", code)
+	}
+}

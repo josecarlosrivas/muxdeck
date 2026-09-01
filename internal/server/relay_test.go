@@ -47,4 +47,17 @@ func TestRelaySetRequiresToken(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("secured enable: got %d: %s", w.Code, w.Body.String())
 	}
+
+	// A gated relay authenticates clients itself, so an authless daemon may
+	// enable it — and the re-arm inherits gated from the saved config.
+	gated := newSrv("")
+	if w := post(gated, `{"url":"wss://r.example/tunnel","key":"k","gated":true}`); w.Code != http.StatusOK {
+		t.Fatalf("authless gated enable: got %d: %s", w.Code, w.Body.String())
+	}
+	if w := post(gated, `{"off":true}`); w.Code != http.StatusOK {
+		t.Fatalf("gated off: got %d", w.Code)
+	}
+	if w := post(gated, `{"off":false}`); w.Code != http.StatusOK {
+		t.Fatalf("gated re-arm: got %d: %s", w.Code, w.Body.String())
+	}
 }

@@ -39,6 +39,7 @@ type relayStatusView struct {
 	Configured bool   `json:"configured"`
 	URL        string `json:"url"`
 	Off        bool   `json:"off"`
+	Gated      bool   `json:"gated"`
 	State      string `json:"state"`
 	Error      string `json:"error"`
 }
@@ -51,6 +52,9 @@ func printRelay(e *env, st relayStatusView) {
 		fmt.Fprintf(e.out, "relay: rejected — %s\n  the relay refused the credential; re-claim, then \"muxdeck relay on\"\n", st.URL)
 	default:
 		line := fmt.Sprintf("relay: %s — %s", st.State, st.URL)
+		if st.Gated {
+			line += " [gated]"
+		}
 		if st.Error != "" {
 			line += " (" + st.Error + ")"
 		}
@@ -159,6 +163,7 @@ func relaySetup(e *env, args []string) error {
 		Credential string `json:"credential"`
 		ExpiresIn  int    `json:"expiresIn"`
 		RelayURL   string `json:"relayUrl"`
+		Gated      bool   `json:"gated"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&claim); err != nil {
 		return fmt.Errorf("unexpected response: %w", err)
@@ -170,7 +175,7 @@ func relaySetup(e *env, args []string) error {
 		return fmt.Errorf("%s did not advertise a relay URL; pass -relay-url", base)
 	}
 
-	if _, err := e.api.do(http.MethodPost, "/api/relay", map[string]string{"url": relayURL, "key": claim.Credential}); err != nil {
+	if _, err := e.api.do(http.MethodPost, "/api/relay", map[string]any{"url": relayURL, "key": claim.Credential, "gated": claim.Gated}); err != nil {
 		return err
 	}
 	fmt.Fprintf(e.out, `claim code: %s   (expires in %d minutes)

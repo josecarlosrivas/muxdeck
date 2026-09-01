@@ -124,9 +124,11 @@ func serve() {
 	}
 
 	token, generated := resolveToken(*tokenFlag, *addr, *noAuth)
-	if st := relaym.Status(); st.Configured && !st.Off && token == "" && !*noAuth {
+	if st := relaym.Status(); st.Configured && !st.Off && !st.Gated && token == "" && !*noAuth {
 		// A configured tunnel publishes this daemon; never come up authless.
 		// Same treatment a non-loopback bind gets: generate an access code.
+		// A gated relay is the exception: it authenticates clients itself,
+		// so the daemon may stay tokenless behind it.
 		token, generated = genCode(8), true
 	}
 	srv := server.New(static, token, generated, remotes, mushruns, relaym)

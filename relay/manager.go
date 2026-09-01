@@ -20,6 +20,11 @@ type Config struct {
 	URL string `json:"url,omitempty"`
 	Key string `json:"key,omitempty"`
 	Off bool   `json:"off,omitempty"`
+	// Gated says the relay authenticates browsers and apps itself before
+	// proxying anything down the tunnel, so a tokenless daemon may dial:
+	// the relay is the gate. Set from the claim response during setup —
+	// never assume it of a relay that didn't advertise it.
+	Gated bool `json:"gated,omitempty"`
 }
 
 // ErrBadConfig is returned when a relay URL fails validation.
@@ -39,6 +44,7 @@ type Status struct {
 	Configured bool   `json:"configured"`
 	URL        string `json:"url,omitempty"`
 	Off        bool   `json:"off,omitempty"`
+	Gated      bool   `json:"gated,omitempty"`
 	State      string `json:"state"` // "idle" | "off" | "blocked" | "dialing" | "connected" | "down" | "rejected"
 	Error      string `json:"error,omitempty"`
 }
@@ -104,7 +110,8 @@ func (m *Manager) Override(rawURL, key string) {
 // serves — the daemon's own mux. secured says the daemon requires an access
 // token: a tunnel publishes the daemon, so an authless one is never dialed
 // (state "blocked") — otherwise anyone who learns the relay name gets an
-// unauthenticated terminal.
+// unauthenticated terminal. The exception is a gated relay (Config.Gated),
+// which authenticates clients itself before proxying.
 func (m *Manager) Start(handler http.Handler, secured bool, logf func(string, ...any)) {
 	m.mu.Lock()
 	m.handler = handler
@@ -153,6 +160,7 @@ func (m *Manager) Status() Status {
 		Configured: m.cfg.URL != "",
 		URL:        m.cfg.URL,
 		Off:        m.cfg.Off,
+		Gated:      m.cfg.Gated,
 		State:      m.state,
 		Error:      m.lastErr,
 	}
@@ -177,7 +185,7 @@ func (m *Manager) restart() {
 		m.state, m.lastErr = "idle", ""
 	case cfg.Off:
 		m.state, m.lastErr = "off", ""
-	case !m.secured:
+	case !m.secured && !cfg.Gated:
 		m.state, m.lastErr = "blocked", "daemon has no access token; restart with -token auto to use the relay"
 		logf("relay: tunnel blocked — the daemon has no access token and a tunnel would expose it publicly; restart with -token auto (or MUXDECK_TOKEN=auto)")
 	default:
