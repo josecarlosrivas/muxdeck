@@ -100,6 +100,7 @@ type stub struct {
 	sessions []listEntry
 	posted   []map[string]any
 	sent     []map[string]any
+	doctor   any
 }
 
 func newStub(t *testing.T, sessions ...listEntry) *stub {
@@ -114,6 +115,12 @@ func newStub(t *testing.T, sessions ...listEntry) *stub {
 		json.NewDecoder(r.Body).Decode(&body)
 		s.posted = append(s.posted, body)
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /api/doctor", func(w http.ResponseWriter, r *http.Request) {
+		if s.doctor == nil {
+			s.doctor = map[string]any{"supported": false}
+		}
+		json.NewEncoder(w).Encode(s.doctor)
 	})
 	mux.HandleFunc("POST /api/sessions/{name}/send", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -293,5 +300,42 @@ func TestUsageErrors(t *testing.T) {
 		if _, code := s.run(t, args...); code == 0 {
 			t.Errorf("%s: got exit 0, want failure", name)
 		}
+	}
+}
+
+func TestDoctorBlocked(t *testing.T) {
+	s := newStub(t)
+	s.doctor = map[string]any{
+		"supported": true,
+		"dirs": []map[string]string{
+			{"name": "Desktop", "path": "/Users/x/Desktop", "status": "ok"},
+			{"name": "Documents", "path": "/Users/x/Documents", "status": "pending"},
+			{"name": "Downloads", "path": "/Users/x/Downloads", "status": "blocked"},
+		},
+		"hits":        []string{"/Users/x/Downloads"},
+		"settingsCmd": `open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"`,
+	}
+	out, code := s.run(t, "doctor")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	for _, want := range []string{
+		"Desktop", "ok", "blocked", "consent prompt",
+		"/Users/x/Downloads", "Full Disk Access", "Privacy_AllFiles",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestDoctorUnsupported(t *testing.T) {
+	s := newStub(t)
+	out, code := s.run(t, "doctor")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	if !strings.Contains(out, "not on macOS") {
+		t.Errorf("output missing platform note:\n%s", out)
 	}
 }

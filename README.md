@@ -223,6 +223,7 @@ token.
 | GET    | `/api/sessions/{name}/diff`   | git diff (worktree vs HEAD)     |
 | GET    | `/api/sessions/{name}/files`  | markdown files under cwd        |
 | GET    | `/api/sessions/{name}/file`   | `?path=` → file content         |
+| GET    | `/api/doctor`                 | macOS folder-privacy state; `?probe` reads the folders |
 | GET    | `/api/remotes`                | list remotes with liveness      |
 | POST   | `/api/remotes`                | add/update a remote             |
 | DELETE | `/api/remotes/{name}`         | remove a remote                 |
@@ -256,6 +257,7 @@ muxdeck notify build "needs your permission"
 muxdeck send build 'make test'              # types it and presses Enter
 muxdeck send -no-enter build 'make test'    # types it and waits
 muxdeck send build                          # a bare Enter
+muxdeck doctor                              # check macOS folder-privacy access
 ```
 
 The daemon to talk to comes from `-url` (default `$MUXDECK_URL`, else
@@ -275,6 +277,16 @@ it is the power the attach WebSocket has always had, behind the same auth.
 
 `notify` and `send` take their flags before the session name, so a message or
 a payload that starts with `-` stays a message.
+
+`doctor` asks the daemon whether macOS folder privacy (TCC) is keeping it out
+of Desktop, Documents or Downloads, and prints how to grant access. It has to
+ask the daemon: grants attach to the process doing the reading, so a read that
+works from your shell proves nothing about the service. The daemon also
+remembers folders it was denied along the way — the web UI shows a banner for
+those, since from an iPad the only other symptom is an `ls` that hangs. It
+never reads protected folders unprompted: an undecided folder makes macOS
+raise a consent prompt on the Mac's screen and park the read behind it, which
+is exactly the hang the banner exists to explain.
 
 ## Viewers
 
