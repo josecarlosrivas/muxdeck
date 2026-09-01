@@ -22,6 +22,7 @@ var commands = map[string]func(*env, []string) error{
 	"status": runStatus,
 	"notify": runNotify,
 	"send":   runSend,
+	"doctor": runDoctor,
 }
 
 // Selected reports whether the process arguments are meant for the CLI.
@@ -89,6 +90,7 @@ func usage(w io.Writer) {
   status set <session> <state>     report agent status (working|waiting|idle)
   notify [flags] <session> <msg>   raise the operator's attention on a session
   send [flags] <session> [text]    type text into a session
+  doctor                           check macOS folder-privacy (TCC) access
 
 Run "muxdeck <command> -h" for a command's flags. notify and send take
 theirs first, so a message that starts with "-" stays a message.

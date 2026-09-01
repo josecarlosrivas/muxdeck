@@ -744,6 +744,46 @@ function orderedSessions() {
   );
 }
 
+// --- macOS folder-privacy (TCC) banner ---
+// The daemon records protected folders macOS denied it (GET /api/doctor);
+// without this a remote user just watches ls hang in the terminal. The poll
+// is passive — the daemon never probes on its own, so no consent prompts
+// fire on a screen nobody is watching.
+
+let tccSupported = true; // until the daemon says otherwise
+let tccDismissed = [];
+try { tccDismissed = JSON.parse(localStorage.getItem("muxdeck-tcc-dismissed")) || []; } catch {}
+
+async function refreshTcc() {
+  if (!tccSupported) return;
+  let rep;
+  try { rep = await api("/api/doctor"); } catch { return; }
+  tccSupported = rep.supported;
+  const banner = $("#tcc-banner");
+  const hits = (rep.hits || []).filter((p) => !tccDismissed.includes(p));
+  if (!hits.length) { banner.hidden = true; return; }
+  banner.innerHTML = icon("alert");
+  const span = document.createElement("span");
+  span.className = "tcc-text";
+  span.append(`macOS is blocking the daemon from ${hits.join(", ")} — grant Full Disk Access to muxdeck and tmux (System Settings › Privacy & Security), or run `);
+  const code = document.createElement("code");
+  code.textContent = "muxdeck doctor";
+  code.title = "click to copy";
+  code.addEventListener("click", () => navigator.clipboard?.writeText("muxdeck doctor"));
+  span.append(code, " on the Mac.");
+  const dismiss = document.createElement("button");
+  dismiss.className = "tcc-dismiss";
+  dismiss.title = "dismiss for these folders";
+  dismiss.innerHTML = icon("x");
+  dismiss.addEventListener("click", () => {
+    tccDismissed = [...new Set([...tccDismissed, ...hits])];
+    localStorage.setItem("muxdeck-tcc-dismissed", JSON.stringify(tccDismissed));
+    banner.hidden = true;
+  });
+  banner.append(span, dismiss);
+  banner.hidden = false;
+}
+
 function renderTmuxMissing() {
   const ul = $("#sessions");
   ul.innerHTML = "";
@@ -812,6 +852,7 @@ async function refreshSessions() {
   // mush runs ride the same tick: the local ledger plus each live remote's.
   // A daemon without mush answers available:false and an empty list.
   await refreshRuns();
+  refreshTcc(); // fire and forget: the banner must never stall the list
 
   const ul = $("#sessions");
   ul.innerHTML = "";

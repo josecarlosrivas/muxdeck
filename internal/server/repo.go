@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/josecarlosrivas/muxdeck/internal/tcc"
 )
 
 // repoState is the git half of a session's sidebar context: which branch the
@@ -94,7 +96,10 @@ func resolveRepo(cwd string) repoState {
 	branch, err := gitContext(ctx, cwd, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		// Not a repository, no commits yet, or no git at all — all of which
-		// mean the same thing to the sidebar: nothing to show.
+		// mean the same thing to the sidebar: nothing to show. A macOS
+		// privacy denial is the exception worth remembering: this poll is
+		// how the daemon organically trips over a folder TCC blocks.
+		tcc.Note(cwd, err)
 		return repoState{}
 	}
 	state := repoState{Branch: strings.TrimSpace(branch)}

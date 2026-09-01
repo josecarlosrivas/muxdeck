@@ -26,6 +26,7 @@ import (
 	"github.com/josecarlosrivas/muxdeck/internal/agent"
 	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
+	"github.com/josecarlosrivas/muxdeck/internal/tcc"
 	"github.com/josecarlosrivas/muxdeck/internal/tmux"
 )
 
@@ -63,6 +64,7 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mus
 	s.mux.HandleFunc("GET /api/sessions/{name}/files", s.auth(s.handleFiles))
 	s.mux.HandleFunc("GET /api/sessions/{name}/file", s.auth(s.handleFile))
 	s.mux.HandleFunc("POST /api/agent/status", s.auth(s.handleAgentStatus))
+	s.mux.HandleFunc("GET /api/doctor", s.auth(s.handleDoctor))
 	s.mux.HandleFunc("GET /api/mush/runs", s.auth(s.handleMushList))
 	s.mux.HandleFunc("POST /api/mush/runs", s.auth(s.handleMushStart))
 	s.mux.HandleFunc("GET /api/mush/runs/{id}/stream", s.auth(s.handleMushStream))
@@ -113,6 +115,16 @@ func (r *statusRecorder) Flush() {
 	if f, ok := r.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// --- doctor: macOS folder-privacy (TCC) diagnostics ---
+
+// handleDoctor reports TCC state. Passive by default — the UI polls it for
+// its banner — because an unsolicited probe can raise consent prompts on a
+// screen nobody is watching (see internal/tcc). ?probe is the deliberate
+// form behind `muxdeck doctor`.
+func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, tcc.Status(r.URL.Query().Has("probe")))
 }
 
 // --- remotes ---
@@ -493,6 +505,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	root, err := git(cwd, "rev-parse", "--show-toplevel")
 	if err != nil {
+		tcc.Note(cwd, err)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a git repository: " + cwd})
 		return
 	}
@@ -521,6 +534,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	if out, err := git(cwd, "ls-files", "-co", "--exclude-standard", "--", "*.md", "*.markdown"); err == nil {
 		files = strings.Fields(strings.TrimSpace(out))
 	} else {
+		tcc.Note(cwd, err)
 		matches, _ := filepath.Glob(filepath.Join(cwd, "*.md"))
 		for _, m := range matches {
 			files = append(files, filepath.Base(m))
@@ -549,6 +563,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	full := filepath.Join(cwd, clean)
 	info, err := os.Stat(full)
 	if err != nil || info.IsDir() {
+		tcc.Note(cwd, err)
 		http.Error(w, "no such file", http.StatusNotFound)
 		return
 	}
@@ -558,6 +573,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := os.ReadFile(full)
 	if err != nil {
+		tcc.Note(cwd, err)
 		writeErr(w, err)
 		return
 	}

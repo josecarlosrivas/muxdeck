@@ -51,6 +51,27 @@ body {
 #sidebar.collapsed #refresh { display: none; }
 #sidebar.collapsed .hdr-tools { flex-direction: column; gap: 14px; }
 
+#tcc-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+#tcc-banner .icon { width: 16px; height: 16px; color: var(--danger); flex: none; }
+#tcc-banner .tcc-text { flex: 1; min-width: 0; }
+#tcc-banner code { cursor: pointer; color: var(--accent); }
+#tcc-banner .tcc-dismiss {
+  background: none;
+  border: 0;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 2px;
+}
+#tcc-banner .tcc-dismiss:hover { color: var(--fg); }
+
 #sidebar-resizer {
   flex: 0 0 7px;
   margin: 0 -3px;

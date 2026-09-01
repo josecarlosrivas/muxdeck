@@ -259,6 +259,80 @@ func runNotify(e *env, args []string) error {
 	}})
 }
 
+// --- doctor ---
+
+// runDoctor asks the daemon — not this process — to check protected-folder
+// access, because TCC grants attach to the process doing the reading: a read
+// that works from this shell, which inherits the terminal's or sshd's
+// grants, proves nothing about what the service can see.
+func runDoctor(e *env, args []string) error {
+	pos, err := newFlags(e, "doctor", mixed, args, nil)
+	if err != nil {
+		return err
+	}
+	if len(pos) > 0 {
+		return fmt.Errorf("%w: doctor takes no arguments", errUsage)
+	}
+	raw, err := e.api.do(http.MethodGet, "/api/doctor?probe", nil)
+	if err != nil {
+		return err
+	}
+	var rep struct {
+		Supported bool `json:"supported"`
+		Dirs      []struct {
+			Name   string `json:"name"`
+			Path   string `json:"path"`
+			Status string `json:"status"`
+		} `json:"dirs"`
+		Hits        []string `json:"hits"`
+		SettingsCmd string   `json:"settingsCmd"`
+	}
+	if err := json.Unmarshal(raw, &rep); err != nil {
+		return fmt.Errorf("unexpected response: %w", err)
+	}
+	if !rep.Supported {
+		fmt.Fprintln(e.out, "nothing to check: folder privacy (TCC) is a macOS concern, and the daemon is not on macOS")
+		return nil
+	}
+	blocked := false
+	w := tabwriter.NewWriter(e.out, 0, 0, 2, ' ', 0)
+	for _, d := range rep.Dirs {
+		note := ""
+		switch d.Status {
+		case "blocked":
+			blocked = true
+			note = "the daemon cannot read this folder"
+		case "pending":
+			blocked = true
+			note = "a consent prompt is waiting on the Mac's screen"
+		case "error":
+			note = "unreadable, but not a privacy denial"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\n", d.Name, d.Status, note)
+	}
+	w.Flush()
+	if len(rep.Hits) > 0 {
+		blocked = true
+		fmt.Fprintf(e.out, "\ndenied paths the daemon has hit: %s\n", strings.Join(rep.Hits, ", "))
+	}
+	if !blocked {
+		fmt.Fprintln(e.out, "\nall protected folders readable")
+		return nil
+	}
+	fmt.Fprintf(e.out, `
+Sessions run under tmux, so grants matter for both binaries. Two ways in:
+
+  per folder (least privilege): while at the Mac, touch the folder from a
+  muxdeck session (e.g. ls ~/Downloads) and approve the prompt
+
+  Full Disk Access (recommended for remote/headless use): System Settings >
+  Privacy & Security > Full Disk Access, enable muxdeck and tmux; on the Mac:
+
+    %s
+`, rep.SettingsCmd)
+	return nil
+}
+
 // --- send ---
 
 func runSend(e *env, args []string) error {
