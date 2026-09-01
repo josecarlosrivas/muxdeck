@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -207,4 +209,123 @@ func TestConfigRoundTrip(t *testing.T) {
 	if !st.Configured || st.URL != "wss://relay.example/tunnel" || !st.Off {
 		t.Fatalf("reloaded config: %+v", st)
 	}
+}
+
+// --- multi-tenant ---
+
+// keyAuth admits a set of bearer→key mappings; anything else is a hard
+// reject. errAuth always fails transiently.
+type keyAuth map[string]string
+
+func (a keyAuth) Auth(_ context.Context, bearer string) (string, error) {
+	if k, ok := a[bearer]; ok {
+		return k, nil
+	}
+	return "", ErrReject
+}
+
+type errAuth struct{}
+
+func (errAuth) Auth(_ context.Context, _ string) (string, error) {
+	return "", errors.New("control plane unreachable")
+}
+
+func startMux(t *testing.T, auth Authenticator, router Router) (*httptest.Server, string) {
+	t.Helper()
+	ts := httptest.NewServer(New(auth, router))
+	t.Cleanup(ts.Close)
+	return ts, "ws" + strings.TrimPrefix(ts.URL, "http") + "/tunnel"
+}
+
+// hostLabelRouter routes by the first DNS label of the Host — the hosted
+// relay's scheme (lynx-pinecone.muxdeck.app -> "lynx-pinecone").
+func hostLabelRouter(r *http.Request) string {
+	host := r.Host
+	if i := strings.IndexByte(host, ':'); i >= 0 {
+		host = host[:i]
+	}
+	if i := strings.IndexByte(host, '.'); i >= 0 {
+		return host[:i]
+	}
+	return host
+}
+
+func TestMultiTenantRouting(t *testing.T) {
+	ts, wsURL := startMux(t, keyAuth{"cred-a": "alpha", "cred-b": "bravo"}, hostLabelRouter)
+
+	a := namedDaemon("A")
+	b := namedDaemon("B")
+	ma := startManager(t, wsURL, "cred-a", a)
+	mb := startManager(t, wsURL, "cred-b", b)
+	waitState(t, ma, "connected")
+	waitState(t, mb, "connected")
+
+	// Same relay, different Host label -> different daemon.
+	if got := getHost(t, ts.URL, "alpha.muxdeck.app"); got != "A" {
+		t.Fatalf("alpha routed to %q, want A", got)
+	}
+	if got := getHost(t, ts.URL, "bravo.muxdeck.app"); got != "B" {
+		t.Fatalf("bravo routed to %q, want B", got)
+	}
+	// An unknown relay name has no tunnel: 503.
+	res, err := doHost(t, ts.URL, "ghost.muxdeck.app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("unknown host: got %d, want 503", res.StatusCode)
+	}
+}
+
+func TestTransientAuthIsRetryable(t *testing.T) {
+	// A transient authenticator error must be 503 (client retries), never
+	// 401 (which the client treats as permanent revocation).
+	_, wsURL := startMux(t, errAuth{}, hostLabelRouter)
+	m := startManager(t, wsURL, "whatever", daemonHandler())
+	// Never reaches "rejected"; sits in dialing/down and keeps retrying.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if st := m.Status().State; st == "rejected" {
+			t.Fatal("transient auth error became a permanent rejection")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func namedDaemon(name string) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /who", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, name)
+	})
+	return mux
+}
+
+func getHost(t *testing.T, base, host string) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		res, err := doHost(t, base, host)
+		if err == nil && res.StatusCode == http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			res.Body.Close()
+			return string(body)
+		}
+		if res != nil {
+			res.Body.Close()
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("%s/who never returned 200", host)
+	return ""
+}
+
+func doHost(t *testing.T, base, host string) (*http.Response, error) {
+	t.Helper()
+	req, err := http.NewRequest("GET", base+"/who", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Host = host
+	return http.DefaultClient.Do(req)
 }

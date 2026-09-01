@@ -25,10 +25,10 @@ import (
 
 	"github.com/josecarlosrivas/muxdeck/internal/agent"
 	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
-	"github.com/josecarlosrivas/muxdeck/internal/relay"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/tcc"
 	"github.com/josecarlosrivas/muxdeck/internal/tmux"
+	"github.com/josecarlosrivas/muxdeck/relay"
 )
 
 const tokenCookie = "muxdeck_token"
