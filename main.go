@@ -16,9 +16,9 @@ import (
 
 	"github.com/josecarlosrivas/muxdeck/internal/cli"
 	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
-	"github.com/josecarlosrivas/muxdeck/internal/relay"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/server"
+	"github.com/josecarlosrivas/muxdeck/relay"
 )
 
 //go:embed web
