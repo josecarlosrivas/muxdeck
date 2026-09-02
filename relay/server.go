@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -110,16 +112,104 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok\n"))
 	case r.URL.Path == "/tunnel":
 		s.handleTunnel(w, r)
+	case s.clientAuth != nil && r.URL.Path == "/relay/login":
+		s.handleLogin(w, r)
+	case s.clientAuth != nil && r.URL.Path == "/relay/logout":
+		s.handleLogout(w, r)
 	default:
 		s.handleProxy(w, r)
 	}
 }
 
+// clientCookie carries the client bearer for browsers that cannot set an
+// Authorization header — a PWA opened straight at the relay origin. Set by
+// /relay/login, read as a fallback by bearer, stripped before proxying so
+// the credential never reaches the daemon.
+const clientCookie = "muxdeck_relay_client"
+
 func bearer(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); len(h) > 7 && h[:7] == "Bearer " {
 		return h[7:]
 	}
+	if c, err := r.Cookie(clientCookie); err == nil {
+		return c.Value
+	}
 	return ""
+}
+
+const loginPage = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>muxdeck relay</title>
+<style>
+  body { background: #0b0e11; color: #d7dde3; font-family: "SF Mono", Menlo, Monaco, monospace;
+         display: flex; flex-direction: column; align-items: center; justify-content: center;
+         min-height: 100vh; margin: 0; gap: 24px; font-size: 15px; }
+  h1 { font-size: 22px; font-weight: 600; letter-spacing: 0.04em; color: #2dd4bf; margin: 0; }
+  h1::before { content: "\276f "; color: #6b7681; }
+  form { display: flex; flex-direction: column; gap: 10px; width: min(420px, 90vw); }
+  input { background: #12161b; color: #d7dde3; border: 1px solid #232b33; border-radius: 8px;
+          padding: 12px 14px; font: inherit; font-size: 14px; }
+  input:focus { outline: none; border-color: #2dd4bf; }
+  button { background: #2dd4bf; color: #0b0e11; font: inherit; font-weight: 600;
+           border: none; border-radius: 8px; padding: 12px; cursor: pointer; }
+  p { color: #f87171; font-size: 13px; min-height: 1.2em; margin: 0; }
+</style></head><body>
+<h1>muxdeck</h1>
+<form method="post" action="/relay/login">
+<input name="token" type="password" placeholder="app token" autocapitalize="none" autocorrect="off" autofocus required>
+<button type="submit">sign in</button>
+</form>
+<p>%s</p>
+</body></html>`
+
+func serveLoginPage(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(code)
+	fmt.Fprintf(w, loginPage, msg)
+}
+
+// secureRequest reports whether the client connection is https — directly
+// or via a terminating proxy — so the cookie's Secure flag matches how the
+// relay is actually reached (prod is always behind TLS; tests are not).
+func secureRequest(r *http.Request) bool {
+	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+}
+
+// handleLogin verifies a pasted app token against the same ClientAuthenticator
+// that gates every proxied request, then hands it back as a cookie. The
+// cookie grants nothing the token itself does not: bearer() just presents it
+// where the browser cannot set a header.
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		serveLoginPage(w, http.StatusOK, "")
+		return
+	}
+	tok := strings.TrimSpace(r.PostFormValue("token"))
+	err := s.clientAuth.ClientAuth(r.Context(), tok, s.router(r))
+	if errors.Is(err, ErrReject) {
+		serveLoginPage(w, http.StatusUnauthorized, "token not accepted for this relay")
+		return
+	}
+	if err != nil {
+		serveLoginPage(w, http.StatusServiceUnavailable, "could not verify the token right now — try again")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: clientCookie, Value: tok, Path: "/",
+		MaxAge:   365 * 24 * 60 * 60,
+		HttpOnly: true, Secure: secureRequest(r), SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name: clientCookie, Value: "", Path: "/",
+		MaxAge: -1, HttpOnly: true, Secure: secureRequest(r), SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, "/relay/login", http.StatusSeeOther)
 }
 
 func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +254,15 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 			if pr.Out.Header.Get("Origin") != "" {
 				pr.Out.Header.Set("Origin", "http://"+tunnelHost)
 			}
+			if _, err := pr.Out.Cookie(clientCookie); err == nil {
+				cs := pr.Out.Cookies()
+				pr.Out.Header.Del("Cookie")
+				for _, c := range cs {
+					if c.Name != clientCookie {
+						pr.Out.AddCookie(c)
+					}
+				}
+			}
 		},
 		Transport: transport,
 		ErrorLog:  discardLogger,
@@ -195,6 +294,12 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	if s.clientAuth != nil {
 		err := s.clientAuth.ClientAuth(r.Context(), bearer(r), key)
 		if errors.Is(err, ErrReject) {
+			// A person navigating (the PWA opening on a dead cookie) gets
+			// the login page; API and asset fetches get the bare status.
+			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
+				http.Redirect(w, r, "/relay/login", http.StatusSeeOther)
+				return
+			}
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
