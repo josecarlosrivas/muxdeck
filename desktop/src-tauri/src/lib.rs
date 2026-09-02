@@ -86,9 +86,27 @@ fn check_for_updates(app: tauri::AppHandle) {
     });
 }
 
+#[cfg(not(desktop))]
+const HOME_BUTTON_JS: &str = r#"(function () {
+  if (window.top !== window) return;
+  if (location.protocol === "tauri:" || location.hostname === "tauri.localhost") return;
+  addEventListener("DOMContentLoaded", function () {
+    var b = document.createElement("button");
+    b.textContent = "⌂";
+    b.title = "servers";
+    b.style.cssText = "position:fixed;right:10px;bottom:10px;width:34px;height:34px;border-radius:17px;background:rgba(18,22,27,0.75);border:1px solid #232b33;color:#6b7681;font-size:15px;line-height:1;z-index:2147483647;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)";
+    b.addEventListener("click", function () { location.href = "tauri://localhost/index.html"; });
+    document.body.appendChild(b);
+  });
+})();"#;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_notification::init());
+    #[cfg(mobile)]
+    let builder = builder
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init());
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -108,8 +126,12 @@ pub fn run() {
                     .inner_size(1280.0, 820.0)
                     .build()?;
             }
+            // Remote pages (the deck reached through the relay) get a
+            // floating home button injected by the shell — the picker used
+            // to host one, but a top-level page can't be overlaid by it.
             #[cfg(not(desktop))]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .initialization_script(HOME_BUTTON_JS)
                 .build()?;
             #[cfg(desktop)]
             check_for_updates(app.handle().clone());
