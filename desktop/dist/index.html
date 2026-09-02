@@ -149,6 +149,9 @@
     // muxdeck://signin#token=mdd_...
     const m = /^muxdeck:\/\/signin#token=([A-Za-z0-9_]+)$/.exec(u);
     if (!m) return;
+    // get_current re-delivers the launch URL on every reload (the home
+    // button reload included); an unchanged token is not a new sign-in.
+    if (m[1] === cloudToken()) return;
     setCloudToken(m[1]);
     renderCloud();
   }
@@ -179,7 +182,12 @@
     f.submit();
   }
 
+  let cloudGen = 0;
+
   async function renderCloud() {
+    // Concurrent calls (boot + a deep-link delivery) must not both append:
+    // only the newest generation gets to touch the box after its awaits.
+    const gen = ++cloudGen;
     const box = $("#cloud");
     box.innerHTML = "";
     if (!cloudToken()) {
@@ -195,6 +203,7 @@
       const { session } = await cloudApi("/api/session", null, { method: "POST", body: JSON.stringify({ token: cloudToken() }) });
       [acct, daemons] = await Promise.all([cloudApi("/api/account", session), cloudApi("/api/daemons", session)]);
     } catch (err) {
+      if (gen !== cloudGen) return;
       if (err.status === 401) { setCloudToken(null); renderCloud(); return; }
       const d = document.createElement("div");
       d.className = "daemons";
@@ -202,6 +211,8 @@
       box.appendChild(d);
       return;
     }
+    if (gen !== cloudGen) return;
+    box.innerHTML = "";
     const b = document.createElement("button");
     b.className = "server";
     const name = document.createElement("span");
