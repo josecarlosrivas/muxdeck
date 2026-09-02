@@ -430,3 +430,154 @@ func TestClientAuthGatesProxy(t *testing.T) {
 		t.Fatalf("transient auth error: got %d, want 503", code)
 	}
 }
+
+func TestClientCookieLogin(t *testing.T) {
+	srv := NewServer("sekrit")
+	srv.SetClientAuth(fakeClientAuth{})
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/tunnel"
+
+	// The daemon reports the Cookie header it received, proving the relay
+	// strips its own credential before proxying.
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /cookies", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "cookies="+r.Header.Get("Cookie"))
+	})
+	m := startManager(t, wsURL, "sekrit", mux)
+	waitState(t, m, "connected")
+	waitFor(t, ts.URL+"/relay/healthz", http.StatusOK)
+
+	// Redirects must not be followed: the cookie is on the 303 itself.
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	login := func(token string) *http.Response {
+		res, err := noRedirect.Post(ts.URL+"/relay/login", "application/x-www-form-urlencoded",
+			strings.NewReader("token="+token))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+
+	if res, err := http.Get(ts.URL + "/relay/login"); err != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("login page: %v %v", res.StatusCode, err)
+	}
+	if res := login("bad"); res.StatusCode != http.StatusUnauthorized || len(res.Cookies()) != 0 {
+		t.Fatalf("bad token login: got %d, %d cookies; want 401, none", res.StatusCode, len(res.Cookies()))
+	}
+	res := login("good")
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("good token login: got %d, want 303", res.StatusCode)
+	}
+	var cookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == clientCookie {
+			cookie = c
+		}
+	}
+	if cookie == nil || cookie.Value != "good" || !cookie.HttpOnly {
+		t.Fatalf("login must set an HttpOnly %s cookie, got %+v", clientCookie, cookie)
+	}
+
+	get := func(cookies ...*http.Cookie) (int, string) {
+		req, err := http.NewRequest("GET", ts.URL+"/cookies", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		return res.StatusCode, string(body)
+	}
+
+	if code, _ := get(); code != http.StatusUnauthorized {
+		t.Fatalf("no cookie: got %d, want 401", code)
+	}
+	code, body := get(cookie, &http.Cookie{Name: "muxdeck_token", Value: "daemonCookie"})
+	if code != http.StatusOK {
+		t.Fatalf("cookie auth: got %d, want 200", code)
+	}
+	// The relay credential is stripped; the daemon's own cookies pass.
+	if body != "cookies=muxdeck_token=daemonCookie" {
+		t.Fatalf("daemon saw %q", body)
+	}
+
+	// WebSocket upgrades carry cookies like any request.
+	hdr := http.Header{"Origin": {ts.URL}, "Cookie": {cookie.Name + "=" + cookie.Value}}
+	if _, res2, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/cookies", hdr); err == nil || res2 == nil || res2.StatusCode == http.StatusUnauthorized {
+		// The route is not a websocket, so the dial fails — but it must get
+		// past the auth gate (anything but 401).
+		if res2 != nil && res2.StatusCode == http.StatusUnauthorized {
+			t.Fatalf("ws dial with cookie must pass the gate")
+		}
+	}
+
+	res3, err := noRedirect.Get(ts.URL + "/relay/logout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res3.Body.Close()
+	cleared := false
+	for _, c := range res3.Cookies() {
+		if c.Name == clientCookie && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatalf("logout must clear the cookie")
+	}
+}
+
+func TestLoginOnlyWhenGated(t *testing.T) {
+	// Without client auth there is nothing to log in to: the path falls
+	// through to the proxy like any other.
+	ts, wsURL := startRelay(t, "sekrit")
+	m := startManager(t, wsURL, "sekrit", daemonHandler())
+	waitState(t, m, "connected")
+	res, err := http.Get(ts.URL + "/relay/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("ungated /relay/login: got %d, want daemon 404", res.StatusCode)
+	}
+}
+
+func TestUnauthedNavigationRedirectsToLogin(t *testing.T) {
+	srv := NewServer("sekrit")
+	srv.SetClientAuth(fakeClientAuth{})
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	req, _ := http.NewRequest("GET", ts.URL+"/", nil)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	res, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/relay/login" {
+		t.Fatalf("html navigation without credential: got %d -> %q, want 303 -> /relay/login", res.StatusCode, res.Header.Get("Location"))
+	}
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/sessions", nil)
+	res2, err := noRedirect.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res2.Body.Close()
+	if res2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("api fetch without credential: got %d, want 401", res2.StatusCode)
+	}
+}
