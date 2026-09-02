@@ -213,17 +213,20 @@
     }
     if (gen !== cloudGen) return;
     box.innerHTML = "";
-    const b = document.createElement("button");
-    b.className = "server";
-    const name = document.createElement("span");
-    name.className = "name";
-    name.textContent = acct.relayName;
-    const url = document.createElement("span");
-    url.className = "url";
-    url.textContent = "via muxdeck cloud";
-    b.append(name, url);
-    b.addEventListener("click", () => connectCloud(acct.relayName));
-    box.appendChild(b);
+    // One row per machine; each daemon carries its own relay name.
+    for (const d of daemons || []) {
+      const b = document.createElement("button");
+      b.className = "server";
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = d.name || d.relayName;
+      const url = document.createElement("span");
+      url.className = "url";
+      url.textContent = d.relayName + ".muxdeck.app";
+      b.append(name, url);
+      b.addEventListener("click", () => connectCloud(d.relayName));
+      box.appendChild(b);
+    }
     const who = document.createElement("div");
     who.className = "who";
     const u = document.createElement("span");
@@ -231,8 +234,7 @@
     u.textContent = acct.username;
     const dm = document.createElement("span");
     dm.className = "daemons";
-    const live = (daemons || []).map((d) => d.name || "daemon").join(", ");
-    dm.textContent = live ? live : "no daemons claimed";
+    dm.textContent = (daemons || []).length ? "" : "no machines claimed";
     const out = document.createElement("button");
     out.textContent = "sign out";
     out.addEventListener("click", async () => {
