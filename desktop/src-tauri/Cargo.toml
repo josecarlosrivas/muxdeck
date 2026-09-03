@@ -1,6 +1,6 @@
 [package]
 name = "muxdeck-desktop"
-version = "0.14.5"
+version = "0.14.6"
 description = "muxdeck desktop app"
 edition = "2021"
 
