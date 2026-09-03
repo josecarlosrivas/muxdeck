@@ -5,7 +5,7 @@
 #
 # Environment overrides (all optional):
 #   MUXDECK_BIN_DIR   install location                    (default /usr/local/bin)
-#   MUXDECK_MODE      run | service | cloud | binary      (default: ask on a TTY, else binary)
+#   MUXDECK_MODE      run | service | cloud | binary | update  (default: ask on a TTY, else binary)
 #   MUXDECK_PORT      port for service/cloud mode         (default 8300)
 #   MUXDECK_CLOUD_URL account server for cloud mode       (default https://cloud.muxdeck.app)
 set -eu
@@ -59,6 +59,7 @@ fi
 chmod +x "$tmp/muxdeck"
 
 # --- install ---
+prev_version=$("$BIN_DIR/muxdeck" -version 2>/dev/null || true)
 # BIN_DIR may not exist (fresh macOS has no /usr/local/bin); install(1) won't create it.
 if [ ! -d "$BIN_DIR" ]; then
   say "+ creating $BIN_DIR"
@@ -80,12 +81,16 @@ if [ -z "$MODE" ] && [ -r /dev/tty ]; then
   say "  2) Service     — starts at boot, listens on all interfaces, token-protected"
   say "  3) Cloud       — starts at boot on loopback, reachable through your muxdeck cloud relay"
   say "  4) Nothing     — just the binary, I'll run it myself"
-  printf 'Choose [1/2/3/4, default 1]: '
+  if [ -n "$prev_version" ]; then
+    say "  5) Update      — you had $prev_version; keep its setup, restart the service"
+  fi
+  printf 'Choose [1-5, default 1]: '
   read -r choice </dev/tty || choice=""
   case "$choice" in
     2) MODE=service ;;
     3) MODE=cloud ;;
     4) MODE=binary ;;
+    5) MODE=update ;;
     *) MODE=run ;;
   esac
 fi
@@ -178,6 +183,48 @@ case "$MODE" in
     say "How you expose it is up to you: keep it LAN/VPN-only, front it with a"
     say "reverse proxy, or use built-in TLS (-tls-cert/-tls-key). HTTPS is required"
     say "for installing the PWA on phones/tablets."
+    ;;
+
+  update)
+    new_version=$("$BIN_DIR/muxdeck" -version 2>/dev/null || echo "muxdeck (unknown)")
+    say ""
+    if [ -z "$prev_version" ]; then
+      say "No previous install was found — this was a fresh install of $new_version."
+      say "Re-run the installer to pick a run mode, or just run 'muxdeck'."
+    elif [ "$prev_version" = "$new_version" ]; then
+      say "Already current: $new_version (binary refreshed in place)."
+    else
+      say "Updated: $prev_version -> $new_version."
+    fi
+    # The binary is swapped; a running service keeps the old one until
+    # restarted. Restart it where we can tell which shape this machine has.
+    restart_cmd=""
+    if [ "$os" = linux ]; then
+      if systemctl is-enabled muxdeck >/dev/null 2>&1; then
+        restart_cmd="sudo systemctl restart muxdeck"
+      elif systemctl --user is-enabled muxdeck >/dev/null 2>&1; then
+        restart_cmd="systemctl --user restart muxdeck"
+      fi
+    else
+      if launchctl print "gui/$(id -u)/com.muxdeck.agent" >/dev/null 2>&1; then
+        restart_cmd="launchctl kickstart -k gui/$(id -u)/com.muxdeck.agent"
+      fi
+    fi
+    if [ -n "$restart_cmd" ]; then
+      printf 'Restart the muxdeck service now? [Y/n]: '
+      if read -r yn 2>/dev/null </dev/tty; then
+        case "$yn" in
+          [Nn]*) say "Not restarted — run: $restart_cmd" ;;
+          *) $restart_cmd && say "+ service restarted on $new_version" ;;
+        esac
+      else
+        # No usable terminal — never restart a service behind the user's back.
+        say ""
+        say "Now restart the service: $restart_cmd"
+      fi
+    else
+      say "No muxdeck service found here — if one runs another way, restart it yourself."
+    fi
     ;;
 
   cloud)
