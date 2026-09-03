@@ -2,17 +2,16 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
   "description": "The main window loads the daemon's web UI from loopback; grant it notification access so agent needs-input alerts reach Notification Center.",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "remote": {
-    "urls": ["http://127.0.0.1:8300"]
+    "urls": [
+      "http://127.0.0.1:8300"
+    ]
   },
   "permissions": [
     "core:default",
-    "notification:default",
-    "deep-link:default",
-    {
-      "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://cloud.muxdeck.app/*" }]
-    }
+    "notification:default"
   ]
 }
