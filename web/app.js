@@ -433,8 +433,26 @@ class Pane {
     };
   }
 
-  static resumeAll() {
-    for (const p of panes) p.reconnectNow();
+  // A suspension kills sockets without delivering close events, and the
+  // zombie still reports readyState OPEN — after any real time away,
+  // reconnect on evidence, not on the socket's word.
+  forceReconnect() {
+    if (!this.session) return;
+    clearTimeout(this.retryTimer);
+    if (this.ws) {
+      this.ws.onclose = null;
+      try { this.ws.close(); } catch {}
+      this.ws = null;
+    }
+    this.msg("");
+    this.connect();
+  }
+
+  static resumeAll(awayMs) {
+    for (const p of panes) {
+      if (!p.session) continue;
+      if (!p.alive() || awayMs > 15000) p.forceReconnect();
+    }
   }
 
   alive() {
