@@ -439,6 +439,24 @@ func (s *Server) handleMouseSet(w http.ResponseWriter, r *http.Request) {
 
 // --- attach: PTY <-> WebSocket bridge ---
 
+// keepAlive pings the socket every 25s so idle connections survive proxies
+// that kill quiet WebSockets (the hosted relay path's router times out near
+// 55s of silence). WriteControl is safe alongside the data writer.
+func keepAlive(conn *websocket.Conn, stop <-chan struct{}) {
+	t := time.NewTicker(25 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			if conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)) != nil {
+				return
+			}
+		case <-stop:
+			return
+		}
+	}
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
@@ -598,6 +616,9 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	stopPing := make(chan struct{})
+	defer close(stopPing)
+	go keepAlive(conn, stopPing)
 
 	// Each websocket gets its own tmux client attached to the session, so
 	// multiple browsers can view the same session just like multiple terminals.
