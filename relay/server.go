@@ -295,11 +295,14 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		err := s.clientAuth.ClientAuth(r.Context(), bearer(r), key)
 		if errors.Is(err, ErrReject) {
 			// A person navigating (the PWA opening on a dead cookie) gets
-			// the login page; API and asset fetches get the bare status.
+			// the login page; API and asset fetches get the bare status,
+			// marked so the daemon's UI can tell this 401 is the relay's —
+			// a daemon token prompt would be the wrong ask.
 			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				http.Redirect(w, r, "/relay/login", http.StatusSeeOther)
 				return
 			}
+			w.Header().Set("X-Muxdeck-Relay-Auth", "refused")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

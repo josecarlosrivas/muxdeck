@@ -57,7 +57,15 @@ async function api(path, opts = {}) {
     ...opts,
   });
   if (res.status === 401) {
-    showLogin();
+    // The relay marks its own refusals: this session or address is done at
+    // the edge — the daemon's token prompt would be the wrong ask. A full
+    // navigation lets the relay route to its login (or the app's home
+    // button leads back to the picker).
+    if (res.headers.get("X-Muxdeck-Relay-Auth")) {
+      showRelayRefused();
+    } else {
+      showLogin();
+    }
     throw new Error("unauthorized");
   }
   if (!res.ok) {
@@ -66,6 +74,23 @@ async function api(path, opts = {}) {
     throw new Error(msg);
   }
   return res.status === 204 ? null : res.json();
+}
+
+let relayRefusedShown = false;
+function showRelayRefused() {
+  if (relayRefusedShown) return;
+  relayRefusedShown = true;
+  const d = document.createElement("div");
+  d.id = "relay-refused";
+  d.innerHTML = "<p>This address is no longer signed in at the relay.</p><p>Reopen it from the muxdeck app, or sign in again:</p>";
+  const a = document.createElement("a");
+  a.href = "/relay/login";
+  a.textContent = "relay sign-in";
+  d.appendChild(a);
+  const login = $("#login");
+  login.hidden = false;
+  login.querySelector("form")?.remove();
+  login.prepend(d);
 }
 
 // --- login ---
