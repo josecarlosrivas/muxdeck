@@ -404,6 +404,10 @@ class Pane {
   }
 
   connect() {
+    // Captured for the close handler: a pane re-used for another session
+    // must not resurrect the old one. (Previously this read the global
+    // window.name, so unexpected closes never reconnected at all.)
+    const name = this.session;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}${keyApi(this.session, "/attach")}`);
     ws.binaryType = "arraybuffer";
@@ -427,6 +431,10 @@ class Pane {
     ws.onclose = () => {
       if (!this.deliberate && this.session === name) this.scheduleReconnect();
     };
+  }
+
+  static resumeAll() {
+    for (const p of panes) p.reconnectNow();
   }
 
   alive() {

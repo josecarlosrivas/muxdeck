@@ -97,6 +97,7 @@ func (s *Server) handleMushStream(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+	go keepAlive(conn, ctx.Done())
 
 	send := func(v any) bool {
 		b, _ := json.Marshal(v)
