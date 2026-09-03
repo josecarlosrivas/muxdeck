@@ -192,6 +192,9 @@ case "$MODE" in
     done
     say ""
     MUXDECK_URL="http://127.0.0.1:$PORT" "$BIN_DIR/muxdeck" relay setup "$CLOUD_URL"
+    say ""
+    say "(ignore the 'relay on' instructions above — the installer runs them for"
+    say " you after you claim; you'll just see the status check at the end)"
     if [ -r /dev/tty ]; then
       printf 'Press Enter once you have claimed the code on %s ... ' "$CLOUD_URL"
       read -r _ </dev/tty || true

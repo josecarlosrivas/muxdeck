@@ -194,6 +194,9 @@
 
   renderCloud();
   initDeepLink();
+  // Foregrounding the app does not reload the page, so a machine claimed
+  // while we were backgrounded would stay invisible until a sign-out.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) renderCloud(); });
 </script>
 </body>
 </html>
