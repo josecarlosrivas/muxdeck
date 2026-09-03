@@ -191,12 +191,17 @@ case "$MODE" in
       sleep 1
     done
     say ""
-    MUXDECK_URL="http://127.0.0.1:$PORT" "$BIN_DIR/muxdeck" relay setup "$CLOUD_URL"
+    # The CLI's own after-claim instructions are for manual setups; keep its
+    # claim-code line and speak the cloud flow ourselves.
+    setup_out=$(MUXDECK_URL="http://127.0.0.1:$PORT" "$BIN_DIR/muxdeck" relay setup "$CLOUD_URL" 2>&1) || {
+      printf '%s\n' "$setup_out"; err "relay setup failed"
+    }
+    printf '%s\n' "$setup_out" | grep -i "claim code" || printf '%s\n' "$setup_out"
     say ""
-    say "(ignore the 'relay on' instructions above — the installer runs them for"
-    say " you after you claim; you'll just see the status check at the end)"
+    say "Claim this machine: open $CLOUD_URL, sign in, and enter the code"
+    say "under Daemons. The installer finishes the connection for you."
     if [ -r /dev/tty ]; then
-      printf 'Press Enter once you have claimed the code on %s ... ' "$CLOUD_URL"
+      printf 'Press Enter once you have claimed the code ... '
       read -r _ </dev/tty || true
       MUXDECK_URL="http://127.0.0.1:$PORT" "$BIN_DIR/muxdeck" relay on
       sleep 2
