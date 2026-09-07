@@ -24,6 +24,7 @@ var commands = map[string]func(*env, []string) error{
 	"send":   runSend,
 	"doctor": runDoctor,
 	"relay":  runRelay,
+	"update": runUpdate,
 }
 
 // Selected reports whether the process arguments are meant for the CLI.
@@ -96,6 +97,7 @@ func usage(w io.Writer) {
   relay set <wss-url> [key]        configure the tunnel and dial
   relay off|on                     pause / resume (on re-arms after reject)
   relay setup <account-url>        claim this daemon with a hosted relay
+  update [-f] [-y]                 swap this binary for the latest release
 
 The daemon also ships the relay rendezvous itself: "muxdeck relay-server"
 runs a self-hosted one (see design/relay.md).
