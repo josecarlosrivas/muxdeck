@@ -175,6 +175,32 @@ document.addEventListener("keydown", (e) => {
 // --- panes ---
 
 let panes = [];
+
+// --- ws freeze hunt: socket forensics, shipped to the daemon log ---
+// Frozen panes on iPad survive every readyState check, so the evidence has
+// to be collected client-side and read back server-side. Plain fetch, not
+// api(): a failed log write must never surface auth UI or break the deck.
+const wsdbg = (() => {
+  const buf = [];
+  let flushTimer = null;
+  function flush() {
+    flushTimer = null;
+    if (!buf.length) return;
+    const entries = buf.splice(0);
+    fetch("/api/debug/client-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entries }),
+    }).catch(() => buf.unshift(...entries.slice(-100)));
+  }
+  return {
+    log(ev, detail = {}) {
+      buf.push({ t: Date.now(), v: document.hidden ? 0 : 1, ev, ...detail });
+      if (buf.length > 400) buf.splice(0, buf.length - 400);
+      if (!flushTimer) flushTimer = setTimeout(flush, 5000);
+    },
+  };
+})();
 let focusedPane = null;
 
 function paneFor() { return focusedPane || panes[0]; }
@@ -437,23 +463,32 @@ class Pane {
     const ws = new WebSocket(`${proto}//${location.host}${keyApi(this.session, "/attach")}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
+    this.lastRx = Date.now();
+    this.hbSeen = false;
+    wsdbg.log("connect", { s: name });
     ws.onopen = () => {
       this.retries = 0;
+      this.lastRx = Date.now();
+      wsdbg.log("open", { s: name });
       this.msg("");
       this.sendResize();
       refreshSessions();
     };
     ws.onmessage = (e) => {
+      this.lastRx = Date.now();
       if (e.data instanceof ArrayBuffer) {
         this.term.write(new Uint8Array(e.data));
         return;
       }
       try {
         const m = JSON.parse(e.data);
+        if (m.type === "hb") { this.hbSeen = true; return; }
         if (m.type === "error") this.term.write(`\r\n[muxdeck] ${m.data}\r\n`);
       } catch {}
     };
-    ws.onclose = () => {
+    ws.onerror = () => wsdbg.log("error", { s: name, rs: ws.readyState });
+    ws.onclose = (e) => {
+      wsdbg.log("close", { s: name, code: e.code, clean: e.wasClean ? 1 : 0 });
       if (!this.deliberate && this.session === name) this.scheduleReconnect();
     };
   }
@@ -463,6 +498,11 @@ class Pane {
   // reconnect on evidence, not on the socket's word.
   forceReconnect() {
     if (!this.session) return;
+    wsdbg.log("force-reconnect", {
+      s: this.session,
+      rs: this.ws ? this.ws.readyState : -1,
+      gap: this.lastRx ? Date.now() - this.lastRx : -1,
+    });
     clearTimeout(this.retryTimer);
     if (this.ws) {
       this.ws.onclose = null;
@@ -1779,9 +1819,50 @@ applySidebar();
 addPane();
 initKeybar();
 window.addEventListener("resize", () => panes.forEach((p) => p.sendResize()));
+// Suspension recovery: reconnectNow() trusts readyState, which a zombie
+// socket still reports as OPEN — so resume must go through resumeAll with
+// the measured time away, and a bfcache restore counts as a full absence.
+let hiddenAt = 0;
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) panes.forEach((p) => p.reconnectNow());
+  if (document.hidden) {
+    hiddenAt = Date.now();
+    wsdbg.log("hidden");
+    return;
+  }
+  const away = hiddenAt ? Date.now() - hiddenAt : 0;
+  wsdbg.log("visible", { away });
+  Pane.resumeAll(away);
 });
+window.addEventListener("pageshow", (e) => {
+  if (!e.persisted) return;
+  wsdbg.log("bfcache-restore");
+  Pane.resumeAll(Infinity);
+});
+window.addEventListener("online", () => wsdbg.log("online"));
+window.addEventListener("offline", () => wsdbg.log("offline"));
+
+// Awake-idle watchdog: the daemon heartbeats every 25s, so a visible pane
+// more than two beats quiet holds a suspect socket. An api() probe first
+// separates a dead network (leave the retry loop alone) from a zombie
+// socket (reconnect, and log that it happened while awake).
+setInterval(() => {
+  if (document.hidden) return;
+  for (const p of panes) {
+    if (!p.session || !p.ws || !p.hbSeen) continue;
+    const gap = Date.now() - p.lastRx;
+    if (gap < 65000) continue;
+    wsdbg.log("stale", { s: p.session, gap, rs: p.ws.readyState });
+    api("/api/sessions").then(
+      () => {
+        if (!p.session || !p.ws || Date.now() - p.lastRx < 65000) return;
+        wsdbg.log("zombie-confirmed", { s: p.session, gap: Date.now() - p.lastRx, rs: p.ws.readyState });
+        p.forceReconnect();
+      },
+      (e) => wsdbg.log("probe-failed", { s: p.session, err: String(e && e.message || e) })
+    );
+    break; // one suspect per tick keeps the probe singular
+  }
+}, 15000);
 refreshSessions().then(attachFromHash);
 setInterval(() => { if (!document.hidden) refreshSessions(); }, 10000);
 
