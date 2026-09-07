@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/creack/pty"
@@ -67,6 +68,7 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mus
 	s.mux.HandleFunc("GET /api/sessions/{name}/file", s.auth(s.handleFile))
 	s.mux.HandleFunc("POST /api/agent/status", s.auth(s.handleAgentStatus))
 	s.mux.HandleFunc("GET /api/doctor", s.auth(s.handleDoctor))
+	s.mux.HandleFunc("POST /api/debug/client-log", s.auth(s.handleClientLog))
 	s.mux.HandleFunc("GET /api/mush/runs", s.auth(s.handleMushList))
 	s.mux.HandleFunc("POST /api/mush/runs", s.auth(s.handleMushStart))
 	s.mux.HandleFunc("GET /api/mush/runs/{id}/stream", s.auth(s.handleMushStream))
@@ -437,12 +439,41 @@ func (s *Server) handleMouseSet(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleClientLog lands the deck's client-side socket forensics (the ws
+// freeze hunt) in the daemon log — the only surface readable after the fact
+// when the client is an iPad in the field. Best-effort and capped; the
+// client never acts on the response.
+func (s *Server) handleClientLog(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Entries []map[string]any `json:"entries"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 256<<10)).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if len(body.Entries) > 200 {
+		body.Entries = body.Entries[:200]
+	}
+	for _, e := range body.Entries {
+		line, _ := json.Marshal(e)
+		if len(line) > 512 {
+			line = line[:512]
+		}
+		log.Printf("wsdebug %s: %s", r.RemoteAddr, line)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // --- attach: PTY <-> WebSocket bridge ---
 
 // keepAlive pings the socket every 25s so idle connections survive proxies
 // that kill quiet WebSockets (the hosted relay path's router times out near
-// 55s of silence). WriteControl is safe alongside the data writer.
-func keepAlive(conn *websocket.Conn, stop <-chan struct{}) {
+// 55s of silence). WriteControl is safe alongside the data writer. It also
+// sends an application-level heartbeat frame: protocol pings are invisible
+// to browser JS, so the heartbeat is the client's only proof of a live
+// socket on an idle terminal. A nil send skips the heartbeat (streams whose
+// data writers aren't serialized with ours).
+func keepAlive(conn *websocket.Conn, send func(int, []byte) error, stop <-chan struct{}) {
 	t := time.NewTicker(25 * time.Second)
 	defer t.Stop()
 	for {
@@ -450,6 +481,12 @@ func keepAlive(conn *websocket.Conn, stop <-chan struct{}) {
 		case <-t.C:
 			if conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)) != nil {
 				return
+			}
+			if send != nil {
+				hb, _ := json.Marshal(map[string]any{"type": "hb", "t": time.Now().UnixMilli()})
+				if send(websocket.TextMessage, hb) != nil {
+					return
+				}
 			}
 		case <-stop:
 			return
@@ -616,9 +653,17 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	// Data frames come from the pty reader and the heartbeat ticker; gorilla
+	// allows one concurrent writer, so both go through this.
+	var wmu sync.Mutex
+	send := func(mt int, data []byte) error {
+		wmu.Lock()
+		defer wmu.Unlock()
+		return conn.WriteMessage(mt, data)
+	}
 	stopPing := make(chan struct{})
 	defer close(stopPing)
-	go keepAlive(conn, stopPing)
+	go keepAlive(conn, send, stopPing)
 
 	// Each websocket gets its own tmux client attached to the session, so
 	// multiple browsers can view the same session just like multiple terminals.
@@ -630,7 +675,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		log.Printf("attach %s: pty: %v", name, err)
-		conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","data":"failed to start tmux client"}`))
+		send(websocket.TextMessage, []byte(`{"type":"error","data":"failed to start tmux client"}`))
 		return
 	}
 	defer func() {
@@ -647,7 +692,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		for {
 			n, err := ptmx.Read(buf)
 			if n > 0 {
-				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+				if werr := send(websocket.BinaryMessage, buf[:n]); werr != nil {
 					return
 				}
 			}
