@@ -38,6 +38,7 @@ func main() {
 		return
 	}
 	if cli.Selected(os.Args[1:]) {
+		cli.Version = version
 		os.Exit(cli.Run(os.Args[1:]))
 	}
 	serve()
