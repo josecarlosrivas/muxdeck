@@ -68,6 +68,7 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mus
 	s.mux.HandleFunc("GET /api/sessions/{name}/file", s.auth(s.handleFile))
 	s.mux.HandleFunc("POST /api/agent/status", s.auth(s.handleAgentStatus))
 	s.mux.HandleFunc("GET /api/doctor", s.auth(s.handleDoctor))
+	s.mux.HandleFunc("GET /api/meta", s.auth(s.handleMeta))
 	s.mux.HandleFunc("POST /api/debug/client-log", s.auth(s.handleClientLog))
 	s.mux.HandleFunc("GET /api/mush/runs", s.auth(s.handleMushList))
 	s.mux.HandleFunc("POST /api/mush/runs", s.auth(s.handleMushStart))
@@ -131,6 +132,20 @@ func (r *statusRecorder) Flush() {
 // form behind `muxdeck doctor`.
 func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tcc.Status(r.URL.Query().Has("probe")))
+}
+
+// handleMeta names the machine behind this daemon. Through the relay every
+// daemon looks alike, so the UI labels the daemon's own sessions with this
+// instead of a generic "Local". MUXDECK_NAME overrides the hostname for
+// boxes whose hostname isn't the name the human uses.
+func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
+	name := os.Getenv("MUXDECK_NAME")
+	if name == "" {
+		if h, err := os.Hostname(); err == nil {
+			name, _, _ = strings.Cut(h, ".")
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"name": name})
 }
 
 // --- remotes ---
