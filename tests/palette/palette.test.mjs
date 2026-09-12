@@ -71,7 +71,7 @@ await writeFile(remotesPath, JSON.stringify([
 const port = await freePort();
 const base = `http://127.0.0.1:${port}`;
 const server = spawn(bin, ["-addr", `127.0.0.1:${port}`], {
-  env: { ...process.env, MUXDECK_REMOTES: remotesPath },
+  env: { ...process.env, MUXDECK_REMOTES: remotesPath, MUXDECK_NAME: "testbox" },
   stdio: ["ignore", "inherit", "inherit"],
 });
 server.on("error", (err) => {
@@ -114,9 +114,9 @@ try {
   // --- sidebar navigator ---
   assertEq("sidebar: desktop heading names the navigation surface",
     await page.$eval("#sidebar h1", (el) => el.textContent), "Sessions");
-  assertEq("sidebar: local and remote groups are explicit",
+  assertEq("sidebar: local group is headed by the machine name, remotes are explicit",
     await page.$$eval("#sessions .section-head", (els) => els.map((el) => el.firstChild.textContent)),
-    ["Local", "Remotes"]);
+    ["testbox", "Remotes"]);
   await page.evaluate(() => document.querySelector("#new-session").click());
   assertEq("sidebar: new button opens the palette in create mode", await modeText(), "new ❯");
   await page.keyboard.press("Escape");
