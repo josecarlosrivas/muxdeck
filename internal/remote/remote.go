@@ -24,6 +24,10 @@ var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 // ErrBadRemote is returned when an add request fails validation.
 var ErrBadRemote = errors.New("remote: name must match [A-Za-z0-9_-]{1,32}; mode ssh needs host, mode url needs an http(s) url")
 
+// ErrCloudManaged is returned when a hand edit targets a remote the cloud
+// account sync owns: it would be re-registered on the next sync anyway.
+var ErrCloudManaged = errors.New("remote: managed by the cloud account — use :cloud signout to remove it")
+
 type Remote struct {
 	Name       string `json:"name"`
 	Mode       string `json:"mode"` // "ssh" | "url"
@@ -32,6 +36,7 @@ type Remote struct {
 	RemotePort int    `json:"remote_port,omitempty"` // remote loopback port for ssh mode
 	Token      string `json:"token,omitempty"`       // remote muxdeck token, injected by the proxy
 	Off        bool   `json:"off,omitempty"`         // soft-disconnected: registered but not polled or tunneled
+	Cloud      bool   `json:"cloud,omitempty"`       // registered by the cloud account sync, not by hand
 }
 
 // Status is the API-facing view of a remote; the token never leaves the file.
@@ -41,6 +46,7 @@ type Status struct {
 	Host     string `json:"host,omitempty"`
 	URL      string `json:"url,omitempty"`
 	HasToken bool   `json:"has_token"`
+	Cloud    bool   `json:"cloud,omitempty"`
 	State    string `json:"state"` // "ok" | "down" | "off"
 	Error    string `json:"error,omitempty"`
 }
@@ -117,10 +123,14 @@ func (m *Manager) Add(r Remote) error {
 	if r.Mode == "ssh" && r.RemotePort == 0 {
 		r.RemotePort = 8300
 	}
+	r.Cloud = false
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.remotes {
 		if m.remotes[i].Name == r.Name {
+			if m.remotes[i].Cloud {
+				return ErrCloudManaged
+			}
 			m.remotes[i] = r
 			m.dropConn(r.Name)
 			return m.save()
@@ -135,12 +145,73 @@ func (m *Manager) Delete(name string) error {
 	defer m.mu.Unlock()
 	for i := range m.remotes {
 		if m.remotes[i].Name == name {
+			if m.remotes[i].Cloud {
+				return ErrCloudManaged
+			}
 			m.remotes = append(m.remotes[:i], m.remotes[i+1:]...)
 			m.dropConn(name)
 			return m.save()
 		}
 	}
 	return fmt.Errorf("no such remote: %s", name)
+}
+
+// SetCloud replaces the cloud-managed entries with want, which the account
+// sync derives from the machines claimed on the account. Hand-registered
+// remotes are never touched: a cloud machine whose name a manual entry
+// already holds is skipped and reported in the returned map (name -> reason).
+// An entry that survives the sync keeps its off flag, so a machine the user
+// disconnected stays disconnected across syncs.
+func (m *Manager) SetCloud(want []Remote) (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	skipped := map[string]string{}
+	manual := map[string]bool{}
+	prev := map[string]Remote{}
+	for _, r := range m.remotes {
+		if r.Cloud {
+			prev[r.Name] = r
+		} else {
+			manual[r.Name] = true
+		}
+	}
+	keep := m.remotes[:0]
+	for _, r := range m.remotes {
+		if !r.Cloud {
+			keep = append(keep, r)
+		}
+	}
+	m.remotes = keep
+	seen := map[string]bool{}
+	for _, r := range want {
+		r.Cloud = true
+		r.Mode = "url"
+		switch {
+		case !valid(r):
+			skipped[r.Name] = "invalid name or url"
+			continue
+		case manual[r.Name]:
+			skipped[r.Name] = "a remote of that name is registered by hand"
+			continue
+		case seen[r.Name]:
+			skipped[r.Name] = "duplicate name"
+			continue
+		}
+		seen[r.Name] = true
+		if old, ok := prev[r.Name]; ok {
+			r.Off = old.Off
+			if old.URL != r.URL || old.Token != r.Token {
+				m.dropConn(r.Name)
+			}
+		}
+		m.remotes = append(m.remotes, r)
+	}
+	for name := range prev {
+		if !seen[name] {
+			m.dropConn(name)
+		}
+	}
+	return skipped, m.save()
 }
 
 // SetOff soft-disconnects (or reconnects) a remote: the registry entry stays,
@@ -193,7 +264,7 @@ func (m *Manager) List() []Status {
 	out := make([]Status, len(remotes))
 	var wg sync.WaitGroup
 	for i, r := range remotes {
-		out[i] = Status{Name: r.Name, Mode: r.Mode, Host: r.Host, URL: r.URL, HasToken: r.Token != ""}
+		out[i] = Status{Name: r.Name, Mode: r.Mode, Host: r.Host, URL: r.URL, HasToken: r.Token != "", Cloud: r.Cloud}
 		if r.Off {
 			out[i].State = "off"
 			continue
@@ -356,6 +427,15 @@ func (m *Manager) Proxy(name, rest string, w http.ResponseWriter, req *http.Requ
 			if token != "" {
 				pr.Out.Header.Set("Authorization", "Bearer "+token)
 			}
+		},
+		// A hosted relay marks its own refusals so the deck served THROUGH
+		// it can tell an edge sign-out from a daemon token prompt. Coming
+		// back through this proxy the mark would be read by the local deck
+		// as its own eviction; here it is just a remote that rejected its
+		// token, which the status probe already reports.
+		ModifyResponse: func(res *http.Response) error {
+			res.Header.Del("X-Muxdeck-Relay-Auth")
+			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			http.Error(w, "remote: "+err.Error(), http.StatusBadGateway)

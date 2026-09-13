@@ -129,6 +129,21 @@ func newStub(t *testing.T, sessions ...listEntry) *stub {
 			"configured": true, "url": body["url"], "state": "dialing",
 		})
 	})
+	mux.HandleFunc("GET /api/cloud", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"signed_in": true, "url": "https://cloud.example", "account": "alice", "state": "ok",
+			"daemons": []map[string]any{
+				{"name": "studio", "relay_name": "quiet-fox", "self": true},
+				{"name": "lab", "relay_name": "calm-elk", "remote": "lab"},
+			},
+		})
+	})
+	mux.HandleFunc("POST /api/cloud", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		s.posted = append(s.posted, body)
+		json.NewEncoder(w).Encode(map[string]any{"signed_in": true, "url": "https://cloud.example", "account": "alice", "state": "ok"})
+	})
 	mux.HandleFunc("GET /api/doctor", func(w http.ResponseWriter, r *http.Request) {
 		if s.doctor == nil {
 			s.doctor = map[string]any{"supported": false}
@@ -383,5 +398,30 @@ func TestRelayToggle(t *testing.T) {
 	}
 	if len(s.posted) != 1 || s.posted[0]["off"] != true {
 		t.Fatalf("posted: %+v", s.posted)
+	}
+}
+
+func TestCloudStatus(t *testing.T) {
+	s := newStub(t)
+	out, code := s.run(t, "cloud")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	if !strings.Contains(out, "ok — https://cloud.example as alice") || !strings.Contains(out, "(this machine)") || !strings.Contains(out, "→ remote lab") {
+		t.Fatalf("status output: %q", out)
+	}
+}
+
+func TestCloudSignIn(t *testing.T) {
+	s := newStub(t)
+	out, code := s.run(t, "cloud", "signin", "mdd_abc")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	if len(s.posted) != 1 || s.posted[0]["token"] != "mdd_abc" || s.posted[0]["url"] != nil {
+		t.Fatalf("posted: %+v", s.posted)
+	}
+	if _, code := s.run(t, "cloud", "signin"); code == 0 {
+		t.Fatal("missing token should fail")
 	}
 }

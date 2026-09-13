@@ -18,7 +18,7 @@ func TestRelaySetRequiresToken(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return New(nil, token, false, nil, nil, m)
+		return New(nil, token, false, nil, nil, m, nil)
 	}
 
 	post := func(s *Server, body string) *httptest.ResponseRecorder {

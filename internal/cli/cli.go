@@ -24,6 +24,7 @@ var commands = map[string]func(*env, []string) error{
 	"send":   runSend,
 	"doctor": runDoctor,
 	"relay":  runRelay,
+	"cloud":  runCloud,
 	"update": runUpdate,
 }
 
@@ -97,6 +98,9 @@ func usage(w io.Writer) {
   relay set <wss-url> [key]        configure the tunnel and dial
   relay off|on                     pause / resume (on re-arms after reject)
   relay setup <account-url>        claim this daemon with a hosted relay
+  cloud                            show the cloud account and its machines
+  cloud signin <device-token>      put the account's machines in the sidebar
+  cloud signout|sync               forget the token / refresh the machines
   update [-f] [-y]                 swap this binary for the latest release
 
 The daemon also ships the relay rendezvous itself: "muxdeck relay-server"

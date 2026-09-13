@@ -213,6 +213,7 @@ body {
 #sessions .section-head:first-child { padding-top: 10px; }
 #sessions .section-head:hover { background: transparent; }
 #sessions .section-count { margin-left: auto; font-weight: 400; letter-spacing: 0; }
+#sessions .cloud-head { color: var(--accent); }
 
 #sessions .remote-head {
   display: flex;
