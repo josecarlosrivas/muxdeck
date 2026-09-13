@@ -896,7 +896,22 @@ function renderTmuxMissing() {
   ul.appendChild(li);
 }
 
+// The machine name behind this daemon (/api/meta). Through the relay every
+// daemon looks alike, so the sidebar heads the daemon's own sessions with
+// this instead of a generic "Local". Fetched once; a failure (old daemon,
+// not yet logged in) retries on the next tick and falls back to "Local".
+let machineName = "";
+let machineNameFetched = false;
+async function fetchMachineName() {
+  if (machineNameFetched) return;
+  try {
+    machineName = (await api("/api/meta")).name || "";
+    machineNameFetched = true;
+  } catch {}
+}
+
 async function refreshSessions() {
+  await fetchMachineName();
   let sessions;
   try {
     sessions = await api("/api/sessions");
@@ -947,7 +962,7 @@ async function refreshSessions() {
 
   const ul = $("#sessions");
   ul.innerHTML = "";
-  ul.appendChild(sectionHeader("Local", lastSessions.length));
+  ul.appendChild(sectionHeader(machineName || "Local", lastSessions.length));
   for (const s of orderedSessions()) ul.appendChild(sessionRow({ ...s, key: s.name }, attached));
   if (remotes.length) ul.appendChild(sectionHeader("Remotes", remotes.length));
   for (const r of remotes) {
