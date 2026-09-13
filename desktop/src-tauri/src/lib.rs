@@ -10,6 +10,38 @@ const ADDR: &str = "127.0.0.1:8300";
 
 struct Sidecar(Mutex<Option<std::process::Child>>);
 
+// Cloud sign-in on desktop: the deck's ":cloud signin" sends the account
+// page to the system browser, and the page comes back through the
+// muxdeck:// scheme with a device token. The link is handed to the deck
+// (which posts it to the daemon) rather than to the daemon directly, so
+// the deck's own auth and refresh apply. A link that lands before the
+// deck has loaded waits here for the page-load hook.
+#[cfg(desktop)]
+struct PendingLinks {
+    urls: Mutex<Vec<String>>,
+    loaded: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(desktop)]
+fn push_link(app: &tauri::AppHandle, url: String) {
+    let Some(state) = app.try_state::<PendingLinks>() else { return };
+    state.urls.lock().unwrap().push(url);
+    if state.loaded.load(std::sync::atomic::Ordering::SeqCst) {
+        deliver_links(app);
+    }
+}
+
+#[cfg(desktop)]
+fn deliver_links(app: &tauri::AppHandle) {
+    let Some(state) = app.try_state::<PendingLinks>() else { return };
+    let Some(win) = app.get_webview_window("main") else { return };
+    let urls: Vec<String> = state.urls.lock().unwrap().drain(..).collect();
+    for u in urls {
+        let arg = serde_json::to_string(&u).unwrap_or_default();
+        let _ = win.eval(&format!("window.muxdeckDeepLink && window.muxdeckDeepLink({arg})"));
+    }
+}
+
 #[cfg(desktop)]
 fn daemon_up() -> bool {
     std::net::TcpStream::connect_timeout(
@@ -102,9 +134,8 @@ const HOME_BUTTON_JS: &str = r#"(function () {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_notification::init());
-    #[cfg(mobile)]
-    let builder = builder
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init());
     #[cfg(desktop)]
@@ -120,11 +151,38 @@ pub fn run() {
             // webview, so size only on desktop.
             #[cfg(desktop)]
             {
+                use tauri::webview::PageLoadEvent;
+                use tauri_plugin_deep_link::DeepLinkExt;
+                app.manage(PendingLinks {
+                    urls: Mutex::new(Vec::new()),
+                    loaded: std::sync::atomic::AtomicBool::new(false),
+                });
                 let url = format!("http://{ADDR}").parse().expect("valid url");
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                     .title("muxdeck")
                     .inner_size(1280.0, 820.0)
+                    .on_page_load(|win, payload| {
+                        let app = win.app_handle().clone();
+                        let Some(state) = app.try_state::<PendingLinks>() else { return };
+                        let finished = matches!(payload.event(), PageLoadEvent::Finished);
+                        state.loaded.store(finished, std::sync::atomic::Ordering::SeqCst);
+                        if finished {
+                            deliver_links(&app);
+                        }
+                    })
                     .build()?;
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for u in event.urls() {
+                        push_link(&handle, u.to_string());
+                    }
+                });
+                // The link that launched the app, when it was not running.
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    for u in urls {
+                        push_link(app.handle(), u.to_string());
+                    }
+                }
             }
             // Remote pages (the deck reached through the relay) get a
             // floating home button injected by the shell — the picker used

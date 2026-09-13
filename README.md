@@ -326,6 +326,34 @@ the `/api/remotes` endpoints. The registry lives at `remotes.json` under the use
 tokens. Unreachable remotes show a broken-link icon with the error in the
 tooltip.
 
+## muxdeck cloud in the sidebar
+
+Sign the daemon in to a [muxdeck cloud](https://cloud.muxdeck.app) account
+and every machine claimed there appears under a **muxdeck cloud** group,
+next to the local sessions and any hand-registered remotes — one deck for
+all your boxes, in the browser, the PWA, and the desktop app alike. The
+daemon syncs the account's machine list every few minutes and registers
+each one (except itself) as a `url` remote reached through its relay
+name, presenting the account's device token as the bearer the relay
+admits. Nothing about the relay or the account changes: the browser still
+authenticates only against the local daemon.
+
+- **Desktop app:** `:cloud signin` opens the account page in your browser;
+  after signing in, "open the muxdeck app" returns the token through the
+  app's `muxdeck://` link and the group fills in.
+- **Browser / PWA deck:** `:cloud signin` opens the account page; mint an
+  app token there and paste it back as `:cloud signin mdd_…`.
+- **Shell:** `muxdeck cloud signin <token>`, `muxdeck cloud` for status,
+  `muxdeck cloud signout` to revoke the token at the account and drop the
+  group, `muxdeck cloud sync` to refresh now.
+
+Cloud machines cannot be edited with `:remote` (they would come back on
+the next sync); `:remote off`/`on` still works and is remembered. A
+machine whose name a hand-registered remote already holds is skipped and
+listed as such in `muxdeck cloud`. The token lives in `cloud.json` under
+the user config dir (override with `MUXDECK_CLOUD_CONFIG`), mode `0600`;
+`MUXDECK_CLOUD_URL` points a fresh sign-in at a self-hosted control plane.
+
 ## How it works
 
 muxdeck shells out to the `tmux` CLI of the user it runs as — it holds no

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
-  "description": "Mobile-only plugins: the deep link that returns the cloud sign-in, and the opener that sends it to Safari.",
+  "description": "Mobile picker grants: the deep link that returns the cloud sign-in, and the opener that sends it to Safari.",
   "platforms": [
     "iOS",
     "android"

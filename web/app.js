@@ -768,6 +768,7 @@ function attachFromHash() {
 
 let lastSessions = [];
 let remotes = []; // /api/remotes statuses
+let cloudStatus = null; // /api/cloud — the account whose machines fill the cloud group
 let mushRuns = new Map(); // host ("" = local) → /api/mush/runs payload
 const remoteSessions = new Map(); // remote name -> its session list
 const seenActivity = new Map(); // key -> last activity we consider seen
@@ -924,6 +925,7 @@ async function refreshSessions() {
   // Remote lists ride the same refresh tick; a dead remote must not stall
   // or break the local render, so failures just flip its state to down.
   try { remotes = await api("/api/remotes"); } catch { remotes = []; }
+  try { cloudStatus = await api("/api/cloud"); } catch { cloudStatus = null; }
   await Promise.all(remotes.map(async (r) => {
     if (r.state !== "ok") { remoteSessions.delete(r.name); return; }
     try {
@@ -964,13 +966,29 @@ async function refreshSessions() {
   ul.innerHTML = "";
   ul.appendChild(sectionHeader(machineName || "Local", lastSessions.length));
   for (const s of orderedSessions()) ul.appendChild(sessionRow({ ...s, key: s.name }, attached));
-  if (remotes.length) ul.appendChild(sectionHeader("Remotes", remotes.length));
-  for (const r of remotes) {
-    ul.appendChild(remoteHeader(r));
-    if (collapsedRemotes[r.name] || r.state !== "ok") continue;
-    for (const s of remoteSessions.get(r.name) || []) {
-      ul.appendChild(sessionRow({ ...s, key: `${r.name}:${s.name}`, remote: r.name }, attached));
+  const manual = remotes.filter((r) => !r.cloud), cloud = remotes.filter((r) => r.cloud);
+  const remoteGroup = (list) => {
+    for (const r of list) {
+      ul.appendChild(remoteHeader(r));
+      if (collapsedRemotes[r.name] || r.state !== "ok") continue;
+      for (const s of remoteSessions.get(r.name) || []) {
+        ul.appendChild(sessionRow({ ...s, key: `${r.name}:${s.name}`, remote: r.name }, attached));
+      }
     }
+  };
+  if (manual.length) ul.appendChild(sectionHeader("Remotes", manual.length));
+  remoteGroup(manual);
+  // The account's machines are a group of their own: signed in, it lists
+  // every other box on the account; revoked, it stays as the place that
+  // says so until the next sign-in.
+  if (cloudStatus?.signed_in || cloudStatus?.state === "revoked") {
+    const head = sectionHeader("muxdeck cloud", cloudStatus.signed_in ? cloud.length : "!");
+    head.classList.add("cloud-head");
+    head.title = cloudStatus.signed_in
+      ? `${cloudStatus.account || "signed in"} · ${cloudStatus.state}${cloudStatus.error ? ` — ${cloudStatus.error}` : ""} · :cloud to manage`
+      : `${cloudStatus.error || "signed out"} · :cloud signin`;
+    ul.appendChild(head);
+    remoteGroup(cloud);
   }
   const runs = allRuns();
   if (runs.length) {
@@ -1359,6 +1377,7 @@ const PAL_COMMANDS = [
   { name: ":split",   hint: "toggle split view",      run: () => { closePalette(); $("#split").click(); } },
   { name: ":sidebar", hint: "collapse/expand sidebar", run: () => { closePalette(); toggleSidebar(); } },
   { name: ":remote",  hint: "add or remove remotes",   run: () => setPalMode("remote") },
+  { name: ":cloud",   hint: "muxdeck cloud account",    run: () => setPalMode("cloud") },
   { name: ":diff",    hint: "git diff of session cwd", run: () => { closePalette(); openDiffView(); } },
   { name: ":mush",    hint: "run an agent task here",  run: () => setPalMode("mush") },
   { name: ":runs",    hint: "open a mush run",         run: () => setPalMode("runs") },
@@ -1390,6 +1409,7 @@ function creatableKey(q) {
 function palItems() {
   const q = $("#pal-input").value.trim();
   if (pal.mode === "remote") return remoteSuggest().items.map((it) => ({ kind: "suggest", ...it }));
+  if (pal.mode === "cloud") return cloudSuggest().items.map((it) => ({ kind: "suggest", ...it }));
   if (pal.mode === "mdpick")
     return (pal.files || []).filter(fuzzy(q)).map((f) => ({ kind: "file", name: f }));
   if (pal.mode === "pick")
@@ -1566,7 +1586,7 @@ function remoteSuggest() {
       ghost: ghost("add · rm · off · on"),
     };
   if (verb === "rm" || verb === "off" || verb === "on") {
-    const pool = verb === "rm" ? remotes : remotes.filter((r) => (r.state === "off") === (verb === "on"));
+    const pool = verb === "rm" ? remotes.filter((r) => !r.cloud) : remotes.filter((r) => (r.state === "off") === (verb === "on"));
     return {
       items: words.length === 1 ? sugg(pool.map((r) => ({ name: r.name, hint: r.state }))) : [],
       ghost: words.length === 1 ? ghost("<name>") : "",
@@ -1627,6 +1647,84 @@ async function runRemoteCommand(line) {
   refreshSessions();
 }
 
+// ":cloud ❯": the account whose machines fill the cloud group. "signin"
+// opens the account page — in the desktop app the sign-in returns through
+// the muxdeck:// link on its own; in a browser deck the account page mints
+// an app token to paste as "signin mdd_…".
+function cloudSuggest() {
+  const q = $("#pal-input").value;
+  const words = q.split(/\s+/).filter(Boolean);
+  const part = q.endsWith(" ") || !words.length ? "" : words.pop();
+  const sugg = (list) => list.filter((it) => it.name.startsWith(part));
+  const ghost = (t) => (part ? "" : t);
+  const signedIn = !!cloudStatus?.signed_in;
+  if (!words.length)
+    return {
+      items: sugg(signedIn
+        ? [
+          { name: "sync",    hint: "refresh the account's machines" },
+          { name: "signout", hint: `forget this device (${cloudStatus.account || "signed in"})` },
+          { name: "signin",  hint: "switch account" },
+        ]
+        : [{ name: "signin", hint: "open the account page · or paste an app token" }]),
+      ghost: ghost(signedIn ? "sync · signout · signin" : "signin [token]"),
+    };
+  if (words[0] === "signin") return { items: [], ghost: words.length === 1 ? ghost("[token]") : "" };
+  return { items: [], ghost: "" };
+}
+
+function cloudLineValid(line) {
+  const w = line.split(/\s+/).filter(Boolean);
+  return (w[0] === "signin" && w.length <= 2) || ((w[0] === "signout" || w[0] === "sync") && w.length === 1);
+}
+
+const CLOUD_URL = "https://cloud.muxdeck.app";
+
+// The desktop app opens the account page in the system browser and gets
+// the token back through its URL scheme (?app=1 asks the page for that
+// handoff); a plain browser deck gets the page's app-token form instead.
+async function openCloudSignin() {
+  const base = cloudStatus?.url || CLOUD_URL;
+  const T = window.__TAURI__;
+  if (T) {
+    try { await T.core.invoke("plugin:opener|open_url", { url: base + "/?app=1" }); return; } catch {}
+  }
+  window.open(base + "/", "_blank", "noopener");
+}
+
+async function runCloudCommand(line) {
+  const [verb, token] = line.split(/\s+/).filter(Boolean);
+  try {
+    if (verb === "signin" && !token) {
+      await openCloudSignin();
+      $(".pal-hint").textContent = "sign in on the account page, then paste an app token here: signin mdd_…";
+      $("#pal-input").value = "signin ";
+      renderPalette();
+      return;
+    } else if (verb === "signin") {
+      await api("/api/cloud", { method: "POST", body: JSON.stringify({ token }) });
+    } else if (verb === "signout") {
+      await api("/api/cloud", { method: "DELETE" });
+    } else if (verb === "sync") {
+      await api("/api/cloud/sync", { method: "POST" });
+    } else {
+      throw new Error("usage: signin [token] · signout · sync");
+    }
+  } catch (err) { alert(err.message); return; }
+  closePalette();
+  refreshSessions();
+}
+
+// The desktop shell hands the sign-in deep link here (muxdeck://signin#token=…).
+window.muxdeckDeepLink = async (u) => {
+  const m = /^muxdeck:\/\/signin#token=([A-Za-z0-9_]+)$/.exec(String(u));
+  if (!m) return;
+  try { await api("/api/cloud", { method: "POST", body: JSON.stringify({ token: m[1] }) }); }
+  catch (err) { alert(`muxdeck cloud sign-in failed: ${err.message}`); return; }
+  if (!$("#palette").hidden && pal.mode === "cloud") closePalette();
+  refreshSessions();
+};
+
 const PAL_MODES = {
   switch:  { prompt: "❯", ph: "session or :command", hint: "↑↓ move · tab complete · ⏎ open · : commands · esc close" },
   new:     { prompt: "new ❯", ph: "session name (host:name for a remote)", hint: "⏎ create · esc back" },
@@ -1634,6 +1732,7 @@ const PAL_MODES = {
   input:   { prompt: null, ph: "new name", hint: "⏎ rename · esc back" },
   confirm: { prompt: null, ph: "", hint: "y kill · n / esc back" },
   remote:  { prompt: ":remote ❯", ph: "add · rm · off · on", hint: "tab complete · ⏎ run · esc back" },
+  cloud:   { prompt: ":cloud ❯", ph: "signin [token] · signout · sync", hint: "tab complete · ⏎ run · esc back" },
   mdpick:  { prompt: ":md ❯", ph: "which file?", hint: "↑↓ move · ⏎ preview · esc back" },
   mush:    { prompt: ":mush ❯", ph: "[-m model] task (runs in the focused session's cwd)", hint: "⏎ run · esc back" },
   runs:    { prompt: ":runs ❯", ph: "which run?", hint: "↑↓ move · ⏎ open · esc back" },
@@ -1677,6 +1776,7 @@ function updateGhost() {
   const inp = $("#pal-input");
   const g = $(".pal-ghost");
   g.textContent = pal.mode === "remote" ? remoteSuggest().ghost
+    : pal.mode === "cloud" ? cloudSuggest().ghost
     : inp.value ? "" : PAL_MODES[pal.mode]?.ph || "";
   g.style.left = `${inp.value.length + 1}ch`;
 }
@@ -1748,6 +1848,9 @@ $("#pal-input").addEventListener("keydown", async (e) => {
     } else if (pal.mode === "remote") {
       if (!remoteLineValid(name) && items[pal.index]) palComplete(items[pal.index]);
       else await runRemoteCommand(name);
+    } else if (pal.mode === "cloud") {
+      if (!cloudLineValid(name) && items[pal.index]) palComplete(items[pal.index]);
+      else await runCloudCommand(name);
     }
     else if (pal.mode === "mush") { await runMushCommand(name); }
     else if (items[pal.index]) await palActivate(items[pal.index]);

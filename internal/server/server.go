@@ -25,6 +25,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/josecarlosrivas/muxdeck/internal/agent"
+	"github.com/josecarlosrivas/muxdeck/internal/cloud"
 	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/tcc"
@@ -49,10 +50,11 @@ type Server struct {
 	remotes  *remote.Manager
 	mushruns *mushrun.Manager
 	relaym   *relay.Manager
+	cloudm   *cloud.Manager
 }
 
-func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager, relaym *relay.Manager) *Server {
-	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), repos: newRepoCache(), ports: newPortCache(), remotes: remotes, mushruns: mushruns, relaym: relaym}
+func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager, relaym *relay.Manager, cloudm *cloud.Manager) *Server {
+	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), repos: newRepoCache(), ports: newPortCache(), remotes: remotes, mushruns: mushruns, relaym: relaym, cloudm: cloudm}
 	s.mux.Handle("/", http.FileServerFS(static))
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
@@ -83,6 +85,10 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mus
 	s.mux.HandleFunc("DELETE /api/remotes/{name}", s.auth(s.handleRemoteDelete))
 	s.mux.HandleFunc("PATCH /api/remotes/{name}", s.auth(s.handleRemotePatch))
 	s.mux.HandleFunc("/api/remotes/{name}/proxy/{rest...}", s.auth(s.handleRemoteProxy))
+	s.mux.HandleFunc("GET /api/cloud", s.auth(s.handleCloudStatus))
+	s.mux.HandleFunc("POST /api/cloud", s.auth(s.handleCloudSignIn))
+	s.mux.HandleFunc("DELETE /api/cloud", s.auth(s.handleCloudSignOut))
+	s.mux.HandleFunc("POST /api/cloud/sync", s.auth(s.handleCloudSync))
 	return s
 }
 
@@ -162,7 +168,7 @@ func (s *Server) handleRemoteAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.remotes.Add(body); err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, remote.ErrBadRemote) {
+		if errors.Is(err, remote.ErrBadRemote) || errors.Is(err, remote.ErrCloudManaged) {
 			status = http.StatusBadRequest
 		}
 		writeJSON(w, status, map[string]string{"error": err.Error()})
@@ -173,10 +179,55 @@ func (s *Server) handleRemoteAdd(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRemoteDelete(w http.ResponseWriter, r *http.Request) {
 	if err := s.remotes.Delete(r.PathValue("name")); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		status := http.StatusNotFound
+		if errors.Is(err, remote.ErrCloudManaged) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- cloud account ---
+// The account is a daemon-side concern: the device token is stored here,
+// the proxy presents it, and the browser only ever talks to this daemon.
+
+func (s *Server) handleCloudStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.cloudm.Status())
+}
+
+func (s *Server) handleCloudSignIn(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Token       string `json:"token"`
+		URL         string `json:"url"`
+		RelayDomain string `json:"relay_domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	st, err := s.cloudm.SignIn(body.URL, body.Token, body.RelayDomain)
+	switch {
+	case errors.Is(err, cloud.ErrBadToken), errors.Is(err, cloud.ErrBadURL):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	case err != nil:
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+	default:
+		writeJSON(w, http.StatusOK, st)
+	}
+}
+
+func (s *Server) handleCloudSignOut(w http.ResponseWriter, r *http.Request) {
+	if err := s.cloudm.SignOut(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleCloudSync(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.cloudm.Sync())
 }
 
 func (s *Server) handleRemotePatch(w http.ResponseWriter, r *http.Request) {

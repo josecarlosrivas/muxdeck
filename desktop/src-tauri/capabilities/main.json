@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "The main window loads the daemon's web UI from loopback; grant it notification access so agent needs-input alerts reach Notification Center.",
+  "description": "The main window loads the daemon's web UI from loopback; grant it notification access so agent needs-input alerts reach Notification Center, and the opener so :cloud signin can send the account page to the system browser.",
   "windows": [
     "main"
   ],
@@ -12,6 +12,14 @@
   },
   "permissions": [
     "core:default",
-    "notification:default"
+    "notification:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://cloud.muxdeck.app/*"
+        }
+      ]
+    }
   ]
 }

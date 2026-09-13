@@ -14,7 +14,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"context"
+
 	"github.com/josecarlosrivas/muxdeck/internal/cli"
+	"github.com/josecarlosrivas/muxdeck/internal/cloud"
 	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/server"
@@ -124,6 +127,18 @@ func serve() {
 		relaym.Override(*relayURL, *relayKey)
 	}
 
+	// The cloud sync leaves this daemon out of its own sidebar by the name
+	// it was claimed under — the hostname unless relay setup was told
+	// otherwise (MUXDECK_NAME carries that override).
+	self := os.Getenv("MUXDECK_NAME")
+	if self == "" {
+		self, _ = os.Hostname()
+	}
+	cloudm, err := cloud.Load(envOr("MUXDECK_CLOUD_CONFIG", cloud.DefaultConfigPath()), remotes, self)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	token, generated := resolveToken(*tokenFlag, *addr, *noAuth)
 	if st := relaym.Status(); st.Configured && !st.Off && !st.Gated && token == "" && !*noAuth {
 		// A configured tunnel publishes this daemon; never come up authless.
@@ -132,8 +147,12 @@ func serve() {
 		// so the daemon may stay tokenless behind it.
 		token, generated = genCode(8), true
 	}
-	srv := server.New(static, token, generated, remotes, mushruns, relaym)
+	srv := server.New(static, token, generated, remotes, mushruns, relaym, cloudm)
 	relaym.Start(srv, token != "", log.Printf)
+	cloudm.Start(context.Background(), log.Printf)
+	if st := cloudm.Status(); st.SignedIn {
+		log.Printf("cloud: signed in at %s; syncing machines", st.URL)
+	}
 	if st := relaym.Status(); st.Configured && !st.Off {
 		log.Printf("relay: dialing %s", st.URL)
 	}
