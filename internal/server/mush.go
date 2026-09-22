@@ -210,6 +210,14 @@ func (s *Server) handleMushStop(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleMushRemove(w http.ResponseWriter, r *http.Request) {
+	if err := s.mushruns.Remove(r.PathValue("id")); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleMushRetry(w http.ResponseWriter, r *http.Request) {
 	row, ok := s.mushRow(w, r)
 	if !ok {

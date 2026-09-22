@@ -1071,6 +1071,20 @@ function runRow(r) {
     .filter(Boolean).join(" · ");
   copy.append(name, meta);
   li.append(dot, copy);
+  if (!RUN_LIVE.has(r.state)) {
+    const rm = document.createElement("button");
+    rm.className = "kill";
+    rm.innerHTML = icon("x");
+    rm.title = `remove ${r.id} from the ledger`;
+    rm.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await removeRun(r);
+    });
+    const actions = document.createElement("span");
+    actions.className = "session-actions";
+    actions.append(rm);
+    li.append(actions);
+  }
   li.title = `${r.id}\n${r.project}`;
   li.addEventListener("click", () => viewerPane().openMush(r.host, r));
   return li;
@@ -1991,6 +2005,21 @@ function mushApi(host, rest = "") {
   return `/api/remotes/${encodeURIComponent(host)}/proxy/mush/runs${rest}`;
 }
 
+// removeRun drops a finished run from its daemon's ledger (mush runs
+// remove): the row and its journal are gone for good, so it asks first, then
+// closes any pane still viewing the run.
+async function removeRun(r) {
+  if (!confirm(`Remove run "${runLabel(r)}" from the ledger? Its journal goes with it.`)) return;
+  try {
+    await api(mushApi(r.host, `/${encodeURIComponent(r.id)}/remove`), { method: "POST" });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  for (const p of panes.filter((p) => p.view?.type === "mush" && p.view.runId === r.id && (p.view.host || "") === (r.host || ""))) closePane(p);
+  refreshSessions();
+}
+
 async function runMushCommand(input) {
   if (!input) return;
   // "-m <model>" prefix overrides the engine's default model for this run.
@@ -2221,6 +2250,7 @@ function mushRunHeader(host, run, pane) {
           setTimeout(() => { pane.msg(""); refreshSessions(); }, 2500);
         }));
       }
+      actions.appendChild(btn("remove", "drop this run and its journal from the ledger (mush runs remove)", () => removeRun({ ...r, host })));
     }
     err.textContent = r.error || "";
     err.hidden = !r.error;

@@ -627,6 +627,29 @@ func (m *Manager) Interrupt(id string) error {
 	return nil
 }
 
+// Remove is `mush runs remove <id>`: a finished run leaves the ledger and
+// its journal goes with it. mush refuses a run still moving; an engine of
+// ours still up is refused here first. A mush too old for the verb lists
+// runs instead and exits clean, so the row is checked for afterwards.
+func (m *Manager) Remove(id string) error {
+	if !m.Available() {
+		return errors.New("mush is not installed on this daemon")
+	}
+	if m.localRun(id) != nil {
+		return errors.New("run is still up on this daemon: interrupt it first")
+	}
+	var stderr bytes.Buffer
+	cmd := m.command("", "runs", "remove", id)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("mush runs remove: %s", strings.TrimSpace(firstNonEmpty(stderr.String(), err.Error())))
+	}
+	if _, err := m.Get(id); err == nil {
+		return errors.New("mush on this daemon cannot remove runs; update mush")
+	}
+	return nil
+}
+
 // Retry starts a fresh run with the same task in the same checkout, recorded
 // as a child of the original.
 func (m *Manager) Retry(row Row) (Row, error) {
