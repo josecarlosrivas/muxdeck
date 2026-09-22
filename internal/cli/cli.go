@@ -25,6 +25,7 @@ var commands = map[string]func(*env, []string) error{
 	"doctor": runDoctor,
 	"relay":  runRelay,
 	"cloud":  runCloud,
+	"awake":  runAwake,
 	"update": runUpdate,
 }
 
@@ -101,6 +102,7 @@ func usage(w io.Writer) {
   cloud                            show the cloud account and its machines
   cloud signin <device-token>      put the account's machines in the sidebar
   cloud signout|sync               forget the token / refresh the machines
+  awake [status|on|off]            keep this Mac awake while someone views it
   update [-f] [-y]                 swap this binary for the latest release
 
 The daemon also ships the relay rendezvous itself: "muxdeck relay-server"

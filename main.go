@@ -19,6 +19,7 @@ import (
 	"github.com/josecarlosrivas/muxdeck/internal/cli"
 	"github.com/josecarlosrivas/muxdeck/internal/cloud"
 	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
+	"github.com/josecarlosrivas/muxdeck/internal/power"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/server"
 	"github.com/josecarlosrivas/muxdeck/relay"
@@ -110,10 +111,17 @@ func serve() {
 	// ssh tunnels are child processes; kill them on the way out so they
 	// don't outlive the daemon across launchd/sidecar restarts.
 	mushruns := mushrun.New(os.Getenv("MUXDECK_MUSH_BIN"))
+	// The keep-awake assertion is a child too (caffeinate -w binds it to
+	// this pid, but a clean exit should not lean on that).
+	powerm, err := power.Load(envOr("MUXDECK_POWER_CONFIG", power.DefaultConfigPath()), power.Default(), log.Printf)
+	if err != nil {
+		log.Fatal(err)
+	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
+		powerm.Shutdown()
 		remotes.Shutdown()
 		mushruns.Shutdown()
 		os.Exit(0)
@@ -147,7 +155,8 @@ func serve() {
 		// so the daemon may stay tokenless behind it.
 		token, generated = genCode(8), true
 	}
-	srv := server.New(static, token, generated, remotes, mushruns, relaym, cloudm)
+	srv := server.New(static, token, generated, remotes, mushruns, relaym, cloudm, powerm)
+	powerm.Start(nil)
 	relaym.Start(srv, token != "", log.Printf)
 	cloudm.Start(context.Background(), log.Printf)
 	if st := cloudm.Status(); st.SignedIn {

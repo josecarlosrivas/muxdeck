@@ -316,6 +316,7 @@ class Pane {
   closeView() {
     clearInterval(this.viewTimer);
     this.viewTimer = null;
+    this.stopPresence();
     if (this.mushWS) { this.mushWS.onclose = null; this.mushWS.close(); this.mushWS = null; }
     this.view = null;
     this.viewStamp = null;
@@ -365,6 +366,7 @@ class Pane {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}${mushApi(host, `/${encodeURIComponent(runId)}/stream`)}`);
     this.mushWS = ws;
+    ws.onopen = () => this.startPresence();
     ws.onmessage = (e) => {
       let env;
       try { env = JSON.parse(e.data); } catch { return; }
@@ -472,6 +474,7 @@ class Pane {
       wsdbg.log("open", { s: name });
       this.msg("");
       this.sendResize();
+      this.startPresence();
       refreshSessions();
     };
     ws.onmessage = (e) => {
@@ -556,8 +559,38 @@ class Pane {
     }
   }
 
+  // --- presence: a pane that is on screen tells its daemon so every 15s
+  // over the socket it already holds (terminal attach or mush stream), and
+  // says "inactive" when the page hides. The daemon owns the timing: a
+  // lease outlives its last renewal by a minute, so a phone that locks
+  // without a close frame still lets the machine sleep. Nothing here keeps
+  // the socket alive — that is the transport's job, and it earns no lease.
+
+  presenceSocket() {
+    if (this.view?.type === "mush") return this.mushWS;
+    return this.session ? this.ws : null;
+  }
+
+  sendPresence(active) {
+    const ws = this.presenceSocket();
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try { ws.send(JSON.stringify({ type: "presence", data: active ? "active" : "inactive" })); } catch {}
+  }
+
+  startPresence() {
+    this.stopPresence();
+    if (!document.hidden) this.sendPresence(true);
+    this.presenceTimer = setInterval(() => { if (!document.hidden) this.sendPresence(true); }, 15000);
+  }
+
+  stopPresence() {
+    clearInterval(this.presenceTimer);
+    this.presenceTimer = null;
+  }
+
   detach(reattaching = false) {
     this.deliberate = true;
+    this.stopPresence();
     clearTimeout(this.retryTimer);
     if (this.ws) {
       this.ws.onclose = null;
@@ -1392,6 +1425,7 @@ const PAL_COMMANDS = [
   { name: ":sidebar", hint: "collapse/expand sidebar", run: () => { closePalette(); toggleSidebar(); } },
   { name: ":remote",  hint: "add or remove remotes",   run: () => setPalMode("remote") },
   { name: ":cloud",   hint: "muxdeck cloud account",    run: () => setPalMode("cloud") },
+  { name: ":awake",   hint: "keep a plugged-in Mac awake while viewing", run: () => setPalMode("awake") },
   { name: ":diff",    hint: "git diff of session cwd", run: () => { closePalette(); openDiffView(); } },
   { name: ":mush",    hint: "run an agent task here",  run: () => setPalMode("mush") },
   { name: ":runs",    hint: "open a mush run",         run: () => setPalMode("runs") },
@@ -1424,6 +1458,7 @@ function palItems() {
   const q = $("#pal-input").value.trim();
   if (pal.mode === "remote") return remoteSuggest().items.map((it) => ({ kind: "suggest", ...it }));
   if (pal.mode === "cloud") return cloudSuggest().items.map((it) => ({ kind: "suggest", ...it }));
+  if (pal.mode === "awake") return awakeSuggest().items.map((it) => ({ kind: "suggest", ...it }));
   if (pal.mode === "mdpick")
     return (pal.files || []).filter(fuzzy(q)).map((f) => ({ kind: "file", name: f }));
   if (pal.mode === "pick")
@@ -1729,6 +1764,69 @@ async function runCloudCommand(line) {
   refreshSessions();
 }
 
+// --- keep awake: the preference belongs to the machine being viewed — the
+// focused pane's host, else this daemon — and the palette names it before
+// changing anything, so a deck with several machines never toggles the
+// wrong one.
+
+function awakeTarget() {
+  const p = paneFor();
+  const key = p?.session || "";
+  const i = key.indexOf(":");
+  const host = p?.view?.type === "mush" ? (p.view.host || "") : i < 0 ? "" : key.slice(0, i);
+  return { host, label: host || machineName || "this machine" };
+}
+
+function powerApi(host) {
+  return host ? `/api/remotes/${encodeURIComponent(host)}/proxy/power` : "/api/power";
+}
+
+function awakeLabel(st) {
+  const viewers = `${st.viewers} viewer${st.viewers === 1 ? "" : "s"}`;
+  switch (st.state) {
+    case "off": return "off";
+    case "waiting": return "on — waiting for a viewer";
+    case "keeping_awake": return `keeping awake (${viewers})`;
+    case "on_battery": return `on battery — not preventing sleep (${viewers})`;
+    case "unsupported": return "unsupported on this machine (macOS only)";
+    case "unavailable": return `unavailable — ${st.error || "backend failed"}`;
+    default: return st.state || "unknown";
+  }
+}
+
+function awakeSuggest() {
+  const q = $("#pal-input").value;
+  const part = q.trim().split(/\s+/).filter(Boolean).pop() || "";
+  const { label } = awakeTarget();
+  const items = [
+    { name: "status", hint: `keep awake on ${label}` },
+    { name: "on",     hint: `${label}: stay awake while plugged in and viewed` },
+    { name: "off",    hint: `${label}: back to normal sleep` },
+  ].filter((it) => it.name.startsWith(part));
+  return { items, ghost: part ? "" : `on · off · status  (${label})` };
+}
+
+async function runAwakeCommand(line) {
+  const verb = line.trim().split(/\s+/)[0] || "status";
+  const { host, label } = awakeTarget();
+  try {
+    let st;
+    if (verb === "on" || verb === "off") {
+      st = await api(powerApi(host), { method: "POST", body: JSON.stringify({ keep_awake_while_viewing: verb === "on" }) });
+    } else if (verb === "status") {
+      st = await api(powerApi(host));
+    } else {
+      throw new Error("usage: on · off · status");
+    }
+    $(".pal-hint").textContent = `${label}: keep awake while viewing ${awakeLabel(st)}`;
+  } catch (err) {
+    const old = /not found/i.test(err.message);
+    $(".pal-hint").textContent = old ? `${label}: its daemon predates keep awake — update muxdeck there` : `${label}: ${err.message}`;
+  }
+  $("#pal-input").value = "";
+  renderPalette();
+}
+
 // The desktop shell hands the sign-in deep link here (muxdeck://signin#token=…).
 window.muxdeckDeepLink = async (u) => {
   const m = /^muxdeck:\/\/signin#token=([A-Za-z0-9_]+)$/.exec(String(u));
@@ -1747,6 +1845,7 @@ const PAL_MODES = {
   confirm: { prompt: null, ph: "", hint: "y kill · n / esc back" },
   remote:  { prompt: ":remote ❯", ph: "add · rm · off · on", hint: "tab complete · ⏎ run · esc back" },
   cloud:   { prompt: ":cloud ❯", ph: "signin [token] · signout · sync", hint: "tab complete · ⏎ run · esc back" },
+  awake:   { prompt: ":awake ❯", ph: "on · off · status", hint: "prevents automatic sleep while this Mac is plugged in and you're viewing a terminal or live run · the display can still sleep" },
   mdpick:  { prompt: ":md ❯", ph: "which file?", hint: "↑↓ move · ⏎ preview · esc back" },
   mush:    { prompt: ":mush ❯", ph: "[-m model] task (runs in the focused session's cwd)", hint: "⏎ run · esc back" },
   runs:    { prompt: ":runs ❯", ph: "which run?", hint: "↑↓ move · ⏎ open · esc back" },
@@ -1791,6 +1890,7 @@ function updateGhost() {
   const g = $(".pal-ghost");
   g.textContent = pal.mode === "remote" ? remoteSuggest().ghost
     : pal.mode === "cloud" ? cloudSuggest().ghost
+    : pal.mode === "awake" ? awakeSuggest().ghost
     : inp.value ? "" : PAL_MODES[pal.mode]?.ph || "";
   g.style.left = `${inp.value.length + 1}ch`;
 }
@@ -1865,6 +1965,9 @@ $("#pal-input").addEventListener("keydown", async (e) => {
     } else if (pal.mode === "cloud") {
       if (!cloudLineValid(name) && items[pal.index]) palComplete(items[pal.index]);
       else await runCloudCommand(name);
+    } else if (pal.mode === "awake") {
+      if (!/^(on|off|status)$/.test(name) && items[pal.index]) palComplete(items[pal.index]);
+      else await runAwakeCommand(name);
     }
     else if (pal.mode === "mush") { await runMushCommand(name); }
     else if (items[pal.index]) await palActivate(items[pal.index]);
@@ -1959,11 +2062,13 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     hiddenAt = Date.now();
     wsdbg.log("hidden");
+    for (const p of panes) p.sendPresence(false);
     return;
   }
   const away = hiddenAt ? Date.now() - hiddenAt : 0;
   wsdbg.log("visible", { away });
   Pane.resumeAll(away);
+  for (const p of panes) p.sendPresence(true);
 });
 window.addEventListener("pageshow", (e) => {
   if (!e.persisted) return;
