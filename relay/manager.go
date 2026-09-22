@@ -197,13 +197,34 @@ func (m *Manager) restart() {
 	m.mu.Unlock()
 }
 
+// steadyTunnel is how long a tunnel must hold before its drop counts as a
+// fresh failure rather than the next beat of a flapping one.
+const steadyTunnel = 30 * time.Second
+
+// redialWait picks the pause before the next dial after a tunnel that held
+// for `held` (zero when it never came up): a tunnel that stayed up for
+// steadyTunnel earned a fresh 1s start, one that dropped sooner keeps the
+// climb going to the 30s cap. Resetting on every successful dial let a
+// relay that accepts and drops each connection — a second daemon holding
+// the same credential — be redialed every second, flooding the log.
+func redialWait(prev, held time.Duration) time.Duration {
+	if prev == 0 || held >= steadyTunnel {
+		return time.Second
+	}
+	if next := prev * 2; next < 30*time.Second {
+		return next
+	}
+	return 30 * time.Second
+}
+
 func (m *Manager) loop(ctx context.Context, cfg Config, handler http.Handler, logf func(string, ...any)) {
-	backoff := time.Second
+	var backoff time.Duration
 	for {
 		m.setState("dialing", "")
+		var up time.Time
 		err := runOnce(ctx, cfg.URL, cfg.Key, handler, func() {
 			m.setState("connected", "")
-			backoff = time.Second
+			up = time.Now()
 		})
 		if errors.Is(err, ErrRevoked) {
 			logf("relay: credential rejected — tunnel stopped (re-claim, then `muxdeck relay on`)")
@@ -218,14 +239,16 @@ func (m *Manager) loop(ctx context.Context, cfg Config, handler http.Handler, lo
 			msg = err.Error()
 		}
 		m.setState("down", msg)
+		var held time.Duration
+		if !up.IsZero() {
+			held = time.Since(up)
+		}
+		backoff = redialWait(backoff, held)
 		logf("relay: tunnel down (%v); redialing in %s", err, backoff)
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(backoff):
-		}
-		if backoff < 30*time.Second {
-			backoff *= 2
 		}
 	}
 }

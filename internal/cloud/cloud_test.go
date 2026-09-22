@@ -274,3 +274,23 @@ func TestRelayDomainDerivation(t *testing.T) {
 		t.Fatalf("remoteName fallback: %q", got)
 	}
 }
+
+func TestSameMachineFoldsLikeRegistryNames(t *testing.T) {
+	cases := []struct {
+		claimed, self string
+		want          bool
+	}{
+		{"alices-macbook-air", "Alices-MacBook-Air.local", true},
+		{"Alices-MacBook-Air.local", "alices-macbook-air", true},
+		{"studio", "studio", true},
+		{"studio", "Studio.lan", true},
+		{"studio", "studio-2", false},
+		{"lab", "", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		if got := sameMachine(c.claimed, c.self); got != c.want {
+			t.Errorf("sameMachine(%q, %q) = %v, want %v", c.claimed, c.self, got, c.want)
+		}
+	}
+}

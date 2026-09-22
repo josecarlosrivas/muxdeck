@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -579,5 +580,24 @@ func TestUnauthedNavigationRedirectsToLogin(t *testing.T) {
 	res2.Body.Close()
 	if res2.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("api fetch without credential: got %d, want 401", res2.StatusCode)
+	}
+}
+
+func TestRedialWaitClimbsAcrossShortTunnels(t *testing.T) {
+	var got []time.Duration
+	wait := time.Duration(0)
+	for i := 0; i < 7; i++ {
+		wait = redialWait(wait, 2*time.Second)
+		got = append(got, wait)
+	}
+	want := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second, 30 * time.Second}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("flapping tunnel: got %v, want %v", got, want)
+	}
+	if w := redialWait(16*time.Second, steadyTunnel); w != time.Second {
+		t.Fatalf("steady tunnel drop: got %v, want 1s", w)
+	}
+	if w := redialWait(16*time.Second, 0); w != 30*time.Second {
+		t.Fatalf("never connected: got %v, want 30s", w)
 	}
 }
