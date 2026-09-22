@@ -404,7 +404,7 @@ func (m *Manager) sync() {
 		if d.LastSeenAt != nil {
 			entry.LastSeenAt = *d.LastSeenAt
 		}
-		if m.self != "" && strings.EqualFold(d.Name, m.self) {
+		if m.self != "" && sameMachine(d.Name, m.self) {
 			entry.Self = true
 			daemons = append(daemons, entry)
 			continue
@@ -438,6 +438,16 @@ func (m *Manager) sync() {
 }
 
 var badChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+
+// sameMachine matches a claimed machine against this daemon's own name the
+// way the registry names them: first label, case-folded. The account may
+// hold the name the relay was claimed under while the daemon knows its
+// hostname with a domain suffix (Alices-MacBook-Air.local vs
+// alices-macbook-air), and a daemon that fails to recognize itself lists
+// itself in its own sidebar.
+func sameMachine(claimed, self string) bool {
+	return remoteName(claimed, "") != "" && remoteName(claimed, "") == remoteName(self, "")
+}
 
 // remoteName turns a claimed machine's display name into a registry name:
 // the first hostname label, lower-cased, non-name characters folded to "-".

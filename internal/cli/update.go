@@ -143,8 +143,8 @@ func download(tag, exe string) (string, error) {
 	return tmp.Name(), nil
 }
 
-// restartService restarts whichever service shape this machine has — the
-// same detection the installer uses.
+// restartService restarts whichever service shape this machine has: a
+// systemd unit (system or user) on Linux, a launchd agent on macOS.
 func restartService(e *env, assumeYes bool) {
 	var cmd []string
 	if runtime.GOOS == "linux" {
@@ -156,11 +156,8 @@ func restartService(e *env, assumeYes bool) {
 		} else if exec.Command("systemctl", "--user", "is-enabled", "muxdeck").Run() == nil {
 			cmd = []string{"systemctl", "--user", "restart", "muxdeck"}
 		}
-	} else {
-		gui := fmt.Sprintf("gui/%d/com.muxdeck.agent", os.Getuid())
-		if exec.Command("launchctl", "print", gui).Run() == nil {
-			cmd = []string{"launchctl", "kickstart", "-k", gui}
-		}
+	} else if label := launchdLabel(); label != "" {
+		cmd = []string{"launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", os.Getuid(), label)}
 	}
 	if cmd == nil {
 		fmt.Fprintln(e.out, "no muxdeck service detected — restart the daemon to pick up the new binary")
@@ -177,6 +174,40 @@ func restartService(e *env, assumeYes bool) {
 		return
 	}
 	fmt.Fprintln(e.out, "service restarted")
+}
+
+// launchdLabel names the muxdeck agent loaded into this user's launchd.
+func launchdLabel() string {
+	out, err := exec.Command("launchctl", "list").Output()
+	if err != nil {
+		return ""
+	}
+	return pickLaunchdLabel(string(out))
+}
+
+// pickLaunchdLabel reads `launchctl list` (PID, status, label per line) for
+// the daemon's agent: the installer's com.muxdeck.agent when loaded, else
+// any other label naming muxdeck — a hand-written plist carries whatever
+// label its author chose, and probing only the installer's used to report
+// no service on such a machine. Running apps show up as
+// application.<bundle id>.<n>.<n> and are not services.
+func pickLaunchdLabel(list string) string {
+	other := ""
+	for _, line := range strings.Split(list, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			continue
+		}
+		label := f[2]
+		switch {
+		case label == "com.muxdeck.agent":
+			return label
+		case strings.HasPrefix(label, "application."):
+		case other == "" && strings.Contains(strings.ToLower(label), "muxdeck"):
+			other = label
+		}
+	}
+	return other
 }
 
 // confirm asks on the controlling terminal; no terminal means no (a script

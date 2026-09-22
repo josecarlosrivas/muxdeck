@@ -2,11 +2,14 @@ use std::sync::Mutex;
 
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
-// Standard muxdeck port. If a daemon (e.g. a launchd service) is already
-// serving here the app attaches to it instead of spawning its own, so the
-// service and the app can coexist — the sidecar is only a fallback.
+// Where a local daemon may already be serving: MUXDECK_ADDR (the daemon's
+// own override) when set, then the standard port and the one above it,
+// where a hand-installed service often lands. A daemon found there (e.g.
+// a launchd service) is attached to instead of doubled — two daemons on
+// one machine share the relay credential and fight over the tunnel — so
+// the sidecar is only a fallback, spawned on the standard port.
 #[cfg(desktop)]
-const ADDR: &str = "127.0.0.1:8300";
+const ADDRS: [&str; 2] = ["127.0.0.1:8300", "127.0.0.1:8301"];
 
 struct Sidecar(Mutex<Option<std::process::Child>>);
 
@@ -43,39 +46,41 @@ fn deliver_links(app: &tauri::AppHandle) {
 }
 
 #[cfg(desktop)]
-fn daemon_up() -> bool {
-    std::net::TcpStream::connect_timeout(
-        &ADDR.parse().unwrap(),
-        std::time::Duration::from_millis(300),
-    )
-    .is_ok()
+fn daemon_up(addr: &str) -> bool {
+    let Ok(sock) = addr.parse() else { return false };
+    std::net::TcpStream::connect_timeout(&sock, std::time::Duration::from_millis(300)).is_ok()
+}
+
+#[cfg(desktop)]
+fn find_daemon() -> Option<String> {
+    let env = std::env::var("MUXDECK_ADDR").ok().filter(|a| !a.is_empty());
+    env.into_iter()
+        .chain(ADDRS.iter().map(|a| a.to_string()))
+        .find(|a| daemon_up(a))
 }
 
 // iOS can't exec a sidecar; the app is a pure client of remote daemons and
-// the webview simply loads the configured server.
+// the webview simply loads the configured server. On desktop this yields
+// the address the app attaches to and the sidecar it spawned, if any.
 #[cfg(desktop)]
-fn ensure_daemon() -> Option<std::process::Child> {
-    if daemon_up() {
-        return None;
+fn ensure_daemon() -> (String, Option<std::process::Child>) {
+    if let Some(addr) = find_daemon() {
+        return (addr, None);
     }
-    let exe = std::env::current_exe().ok()?;
-    let bin = exe.parent().expect("exe has parent dir").join("muxdeck");
-    let child = std::process::Command::new(bin)
-        .args(["-addr", ADDR])
-        .spawn()
-        .ok()?;
-    for _ in 0..100 {
-        if daemon_up() {
-            break;
+    let addr = ADDRS[0].to_string();
+    let child = std::env::current_exe().ok().and_then(|exe| {
+        let bin = exe.parent().expect("exe has parent dir").join("muxdeck");
+        std::process::Command::new(bin).args(["-addr", addr.as_str()]).spawn().ok()
+    });
+    if child.is_some() {
+        for _ in 0..100 {
+            if daemon_up(&addr) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    Some(child)
-}
-
-#[cfg(not(desktop))]
-fn ensure_daemon() -> Option<std::process::Child> {
-    None
+    (addr, child)
 }
 
 // Launch-time update check: install silently, then offer a restart. Declining
@@ -144,7 +149,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init());
     builder
         .setup(|app| {
-            app.manage(Sidecar(Mutex::new(ensure_daemon())));
+            #[cfg(desktop)]
+            let (addr, sidecar) = ensure_daemon();
+            #[cfg(not(desktop))]
+            let sidecar = None;
+            app.manage(Sidecar(Mutex::new(sidecar)));
             // Desktop rides the local daemon's own UI; mobile has no daemon
             // and loads the bundled server picker instead, which iframes the
             // chosen remote. A fixed window size on iOS letterboxes the
@@ -157,7 +166,7 @@ pub fn run() {
                     urls: Mutex::new(Vec::new()),
                     loaded: std::sync::atomic::AtomicBool::new(false),
                 });
-                let url = format!("http://{ADDR}").parse().expect("valid url");
+                let url = format!("http://{addr}").parse().expect("valid url");
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                     .title("muxdeck")
                     .inner_size(1280.0, 820.0)

@@ -425,3 +425,18 @@ func TestCloudSignIn(t *testing.T) {
 		t.Fatal("missing token should fail")
 	}
 }
+
+func TestPickLaunchdLabel(t *testing.T) {
+	installer := "PID\tStatus\tLabel\n-\t0\tcom.apple.foo\n123\t0\tcom.muxdeck.agent\n456\t0\tlocal.muxdeck.daemon\n"
+	if got := pickLaunchdLabel(installer); got != "com.muxdeck.agent" {
+		t.Fatalf("installer label wins: got %q", got)
+	}
+	hand := "PID\tStatus\tLabel\n789\t0\tapplication.com.muxdeck.desktop.1234.5678\n456\t0\tlocal.muxdeck.daemon\n"
+	if got := pickLaunchdLabel(hand); got != "local.muxdeck.daemon" {
+		t.Fatalf("hand-written label: got %q", got)
+	}
+	none := "PID\tStatus\tLabel\n789\t0\tapplication.com.muxdeck.desktop.1234.5678\n-\t0\tcom.apple.foo\n"
+	if got := pickLaunchdLabel(none); got != "" {
+		t.Fatalf("app only: got %q, want none", got)
+	}
+}
