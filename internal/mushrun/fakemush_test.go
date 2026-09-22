@@ -51,6 +51,32 @@ func writeRow(row map[string]any) {
 }
 
 func runs(args []string) {
+	if len(args) > 0 && args[0] == "remove" {
+		for _, id := range args[1:] {
+			b, err := os.ReadFile(filepath.Join(rowsDir(), id+".json"))
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "mush runs remove: runstore: run not found")
+				os.Exit(1)
+			}
+			var row map[string]any
+			json.Unmarshal(b, &row)
+			switch row["state"] {
+			case "done", "failed", "interrupted":
+			default:
+				fmt.Fprintf(os.Stderr, "mush runs remove: run %s is %v, not finished\n", id, row["state"])
+				os.Exit(1)
+			}
+			if j, _ := row["journal"].(string); j != "" {
+				if !filepath.IsAbs(j) {
+					j = filepath.Join(row["project"].(string), j)
+				}
+				os.Remove(j)
+			}
+			os.Remove(filepath.Join(rowsDir(), id+".json"))
+			fmt.Println("removed", id)
+		}
+		return
+	}
 	project := ""
 	for i, a := range args {
 		if a == "--project" && i+1 < len(args) {

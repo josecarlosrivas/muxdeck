@@ -311,3 +311,39 @@ func TestManagerUnavailable(t *testing.T) {
 		t.Fatalf("List without a binary = %v, %v", rows, err)
 	}
 }
+
+func TestRemoveRun(t *testing.T) {
+	mushHomeDir(t)
+	m := New(fakeBin)
+	dir := t.TempDir()
+	row, err := m.Start("task", dir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Remove(row.ID); err == nil {
+		t.Fatal("removed a run whose engine is still up")
+	}
+	waitJournal(t, m, row, "approval_requested")
+	if err := m.Approve(row.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	m.Wait(ctx, row.ID)
+	journal := filepath.Join(dir, ".mush", "runs", row.ID+".jsonl")
+	if _, err := os.Stat(journal); err != nil {
+		t.Fatalf("journal before remove: %v", err)
+	}
+	if err := m.Remove(row.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Get(row.ID); !IsNotFound(err) {
+		t.Fatalf("Get after remove = %v, want not found", err)
+	}
+	if _, err := os.Stat(journal); !os.IsNotExist(err) {
+		t.Fatalf("journal after remove: %v", err)
+	}
+	if err := m.Remove(row.ID); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("remove twice: %v", err)
+	}
+}

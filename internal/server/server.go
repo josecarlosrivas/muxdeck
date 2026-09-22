@@ -78,6 +78,7 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mus
 	s.mux.HandleFunc("DELETE /api/mush/runs/{id}", s.auth(s.handleMushStop))
 	s.mux.HandleFunc("POST /api/mush/runs/{id}/retry", s.auth(s.handleMushRetry))
 	s.mux.HandleFunc("POST /api/mush/runs/{id}/resume", s.auth(s.handleMushResume))
+	s.mux.HandleFunc("POST /api/mush/runs/{id}/remove", s.auth(s.handleMushRemove))
 	s.mux.HandleFunc("GET /api/relay", s.auth(s.handleRelayStatus))
 	s.mux.HandleFunc("POST /api/relay", s.auth(s.handleRelaySet))
 	s.mux.HandleFunc("GET /api/remotes", s.auth(s.handleRemoteList))
