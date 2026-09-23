@@ -18,14 +18,15 @@ import (
 )
 
 var commands = map[string]func(*env, []string) error{
-	"ls":     runLS,
-	"status": runStatus,
-	"notify": runNotify,
-	"send":   runSend,
-	"doctor": runDoctor,
-	"relay":  runRelay,
-	"cloud":  runCloud,
-	"update": runUpdate,
+	"ls":      runLS,
+	"status":  runStatus,
+	"notify":  runNotify,
+	"send":    runSend,
+	"doctor":  runDoctor,
+	"relay":   runRelay,
+	"cloud":   runCloud,
+	"update":  runUpdate,
+	"service": runService,
 }
 
 // Selected reports whether the process arguments are meant for the CLI.
@@ -102,6 +103,10 @@ func usage(w io.Writer) {
   cloud signin <device-token>      put the account's machines in the sidebar
   cloud signout|sync               forget the token / refresh the machines
   update [-f] [-y]                 swap this binary for the latest release
+  service                          is the daemon installed as a service?
+  service install [flags]          run this binary in the background at login,
+                                   claimed with muxdeck cloud (-no-claim to skip)
+  service uninstall                stop and remove the service
 
 The daemon also ships the relay rendezvous itself: "muxdeck relay-server"
 runs a self-hosted one (see design/relay.md).
