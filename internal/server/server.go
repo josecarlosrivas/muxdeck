@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -27,6 +28,7 @@ import (
 	"github.com/josecarlosrivas/muxdeck/internal/agent"
 	"github.com/josecarlosrivas/muxdeck/internal/cloud"
 	"github.com/josecarlosrivas/muxdeck/internal/mushrun"
+	"github.com/josecarlosrivas/muxdeck/internal/power"
 	"github.com/josecarlosrivas/muxdeck/internal/remote"
 	"github.com/josecarlosrivas/muxdeck/internal/tcc"
 	"github.com/josecarlosrivas/muxdeck/internal/tmux"
@@ -49,12 +51,13 @@ type Server struct {
 	ports    *portCache
 	remotes  *remote.Manager
 	mushruns *mushrun.Manager
+	powerm   *power.Manager
 	relaym   *relay.Manager
 	cloudm   *cloud.Manager
 }
 
-func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager, relaym *relay.Manager, cloudm *cloud.Manager) *Server {
-	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), repos: newRepoCache(), ports: newPortCache(), remotes: remotes, mushruns: mushruns, relaym: relaym, cloudm: cloudm}
+func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mushruns *mushrun.Manager, relaym *relay.Manager, cloudm *cloud.Manager, powerm *power.Manager) *Server {
+	s := &Server{mux: http.NewServeMux(), token: token, foldCase: foldCase, agents: agent.NewStore(), repos: newRepoCache(), ports: newPortCache(), remotes: remotes, mushruns: mushruns, relaym: relaym, cloudm: cloudm, powerm: powerm}
 	s.mux.Handle("/", http.FileServerFS(static))
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleList))
@@ -90,6 +93,8 @@ func New(static fs.FS, token string, foldCase bool, remotes *remote.Manager, mus
 	s.mux.HandleFunc("POST /api/cloud", s.auth(s.handleCloudSignIn))
 	s.mux.HandleFunc("DELETE /api/cloud", s.auth(s.handleCloudSignOut))
 	s.mux.HandleFunc("POST /api/cloud/sync", s.auth(s.handleCloudSync))
+	s.mux.HandleFunc("GET /api/power", s.auth(s.handlePowerStatus))
+	s.mux.HandleFunc("POST /api/power", s.auth(s.handlePowerSet))
 	return s
 }
 
@@ -750,6 +755,10 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		cmd.Process.Kill()
 		cmd.Wait()
 	}()
+	// A viewer that is really looking says so over this socket; its
+	// keep-awake claim ends with the socket, whatever else is still up.
+	viewer := fmt.Sprintf("attach:%s:%p", name, conn)
+	defer s.powerm.Release(viewer)
 
 	// pty -> ws. Closing conn on exit unblocks the read loop below when the
 	// tmux client ends (session killed, server exit).
@@ -788,6 +797,12 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		case "resize":
 			if msg.Cols > 0 && msg.Rows > 0 {
 				pty.Setsize(ptmx, &pty.Winsize{Cols: msg.Cols, Rows: msg.Rows})
+			}
+		case "presence":
+			if msg.Data == "active" {
+				s.powerm.Acquire(viewer)
+			} else {
+				s.powerm.Release(viewer)
 			}
 		}
 	}

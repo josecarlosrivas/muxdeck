@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -165,12 +166,23 @@ func (s *Server) handleMushStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	viewer := fmt.Sprintf("mush:%s:%p", row.ID, conn)
+	defer s.powerm.Release(viewer)
 	for {
 		mt, data, err := conn.ReadMessage()
 		if err != nil {
 			return
 		}
 		if mt != websocket.TextMessage {
+			continue
+		}
+		var ctl controlMsg
+		if json.Unmarshal(data, &ctl) == nil && ctl.Type == "presence" {
+			if ctl.Data == "active" {
+				s.powerm.Acquire(viewer)
+			} else {
+				s.powerm.Release(viewer)
+			}
 			continue
 		}
 		if err := s.mushCommand(row.ID, data); err != nil {

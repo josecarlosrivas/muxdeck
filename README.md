@@ -235,6 +235,8 @@ token.
 | GET    | `/api/sessions/{name}/files`  | markdown files under cwd        |
 | GET    | `/api/sessions/{name}/file`   | `?path=` → file content         |
 | GET    | `/api/doctor`                 | macOS folder-privacy state; `?probe` reads the folders |
+| GET    | `/api/power`                  | keep-awake state (see below)    |
+| POST   | `/api/power`                  | `{"keep_awake_while_viewing"}` → set |
 | GET    | `/api/remotes`                | list remotes with liveness      |
 | POST   | `/api/remotes`                | add/update a remote             |
 | DELETE | `/api/remotes/{name}`         | remove a remote                 |
@@ -364,6 +366,31 @@ machine whose name a hand-registered remote already holds is skipped and
 listed as such in `muxdeck cloud`. The token lives in `cloud.json` under
 the user config dir (override with `MUXDECK_CLOUD_CONFIG`), mode `0600`;
 `MUXDECK_CLOUD_URL` points a fresh sign-in at a self-hosted control plane.
+
+## Keep a Mac awake while viewing
+
+A sleeping Mac wakes for the network, then dozes off again before a
+terminal is any use. Opt in per machine and the daemon keeps that Mac
+awake while someone is actually looking at it — a terminal pane or a live
+mush run on screen, idle or not — and only while it is plugged in. The
+display may still sleep; nothing touches `pmset`, no root service, and an
+explicit Sleep is still respected.
+
+- **Deck:** `:awake on|off|status` acts on the focused pane's machine (or
+  this one) and names it first. **Shell:** `muxdeck awake on|off|status`.
+- Viewers renew a presence lease every 15s over the socket they already
+  hold; a lease lapses a minute after its last renewal, so a locked phone
+  or a dead network lets the machine sleep on its own. The last viewer's
+  departure is held for 15s in case it is a reconnect. Session lists,
+  status polls, relay traffic and detached sessions earn no lease; clients
+  older than this feature keep working and earn none either.
+- One assertion per daemon, however many panes, tabs or phones are
+  looking: on macOS an owned `caffeinate -s -w <daemon pid>`, which only
+  applies on AC power and dies with the daemon. Status reports intent,
+  viewers, backend and effective power separately — `on_battery` means
+  viewers are present but nothing is being held. Off macOS the feature
+  reports `unsupported` and cannot be enabled. The preference is
+  `power.json` in the daemon's config dir.
 
 ## How it works
 

@@ -2,7 +2,8 @@
   "identifier": "com.josecarlosrivas.muxdeck",
   "bundle": {
     "iOS": {
-      "developmentTeam": "2SDFN3YMRV"
+      "developmentTeam": "2SDFN3YMRV",
+      "minimumSystemVersion": "15.0"
     }
   }
 }
