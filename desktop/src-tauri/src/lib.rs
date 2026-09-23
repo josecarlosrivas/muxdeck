@@ -123,6 +123,137 @@ fn check_for_updates(app: tauri::AppHandle) {
     });
 }
 
+// First-launch offer, made only when the app had to spawn its own daemon:
+// run muxdeck as a login service instead, so terminals stay reachable from
+// phones and the cloud with the app closed and Keep Awake works without it
+// open. Yes: the sidecar is stopped, `muxdeck service install` points the
+// service at the daemon inside this bundle (so it follows app updates),
+// the claim code is shown, and the window reloads onto the service. No:
+// remembered, and the same install stays one shell command away.
+#[cfg(desktop)]
+fn offer_service(app: tauri::AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    if !(cfg!(target_os = "macos") || cfg!(target_os = "linux")) {
+        return;
+    }
+    let Some(home) = std::env::var_os("HOME") else { return };
+    let home = std::path::PathBuf::from(home);
+    let unit = if cfg!(target_os = "macos") {
+        home.join("Library/LaunchAgents/com.muxdeck.agent.plist")
+    } else {
+        home.join(".config/systemd/user/muxdeck.service")
+    };
+    let declined = app
+        .path()
+        .config_dir()
+        .ok()
+        .map(|d| d.join("muxdeck").join("service-declined"));
+    if unit.exists() || declined.as_ref().is_some_and(|p| p.exists()) {
+        return;
+    }
+    let handle = app.clone();
+    app.dialog()
+        .message(
+            "Your terminals stay reachable from your phone and muxdeck cloud while the app is closed, \
+             and Keep Awake works without it open. muxdeck installs itself as a login service for \
+             your user — no admin password needed.",
+        )
+        .title("Run muxdeck in the background?")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Run in background".into(),
+            "Not now".into(),
+        ))
+        .show(move |yes| {
+            if !yes {
+                if let Some(p) = declined {
+                    if let Some(dir) = p.parent() {
+                        let _ = std::fs::create_dir_all(dir);
+                    }
+                    let _ = std::fs::write(p, b"");
+                }
+                return;
+            }
+            std::thread::spawn(move || install_service(handle));
+        });
+}
+
+#[cfg(desktop)]
+fn install_service(app: tauri::AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    use tauri_plugin_opener::OpenerExt;
+    // The service takes the standard port; the sidecar holding it is ours to stop.
+    if let Some(state) = app.try_state::<Sidecar>() {
+        if let Some(mut child) = state.0.lock().unwrap().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    let bin = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join("muxdeck")));
+    let out = bin.and_then(|b| {
+        std::process::Command::new(b)
+            .args(["service", "install", "-json"])
+            .output()
+            .ok()
+    });
+    let mut failed = false;
+    let mut url: Option<String> = None;
+    let (title, text) = match out {
+        Some(o) if o.status.success() => {
+            let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap_or_default();
+            match v.get("claim") {
+                Some(c) => {
+                    url = c["url"].as_str().map(|s| s.to_string());
+                    (
+                        "muxdeck is running in the background",
+                        format!(
+                            "Claim code: {}   (expires in {} minutes)\n\nEnter it under Daemons on your account page and this machine appears in your other muxdeck apps.",
+                            c["code"].as_str().unwrap_or("?"),
+                            c["expires_in"].as_i64().unwrap_or(0) / 60
+                        ),
+                    )
+                }
+                None => ("muxdeck is running in the background", "Installed as a login service.".to_string()),
+            }
+        }
+        Some(o) => {
+            failed = true;
+            ("Could not install the service", String::from_utf8_lossy(&o.stderr).trim().to_string())
+        }
+        None => {
+            failed = true;
+            ("Could not install the service", "the daemon binary next to the app could not be run".to_string())
+        }
+    };
+    if failed {
+        // Back onto a sidecar of our own; the window's address is the same.
+        if let Some(state) = app.try_state::<Sidecar>() {
+            let (_, child) = ensure_daemon();
+            *state.0.lock().unwrap() = child;
+        }
+    }
+    let has_url = url.is_some();
+    let handle = app.clone();
+    let mut dialog = app.dialog().message(text).title(title);
+    if has_url {
+        dialog = dialog.buttons(MessageDialogButtons::OkCancelCustom(
+            "Open account page".into(),
+            "Later".into(),
+        ));
+    }
+    dialog.show(move |open| {
+        if open {
+            if let Some(u) = url {
+                let _ = handle.opener().open_url(u, None::<&str>);
+            }
+        }
+    });
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.eval("location.reload()");
+    }
+}
+
 #[cfg(not(desktop))]
 const HOME_BUTTON_JS: &str = r#"(function () {
   if (window.top !== window) return;
@@ -151,6 +282,8 @@ pub fn run() {
         .setup(|app| {
             #[cfg(desktop)]
             let (addr, sidecar) = ensure_daemon();
+            #[cfg(desktop)]
+            let spawned = sidecar.is_some();
             #[cfg(not(desktop))]
             let sidecar = None;
             app.manage(Sidecar(Mutex::new(sidecar)));
@@ -202,6 +335,10 @@ pub fn run() {
                 .build()?;
             #[cfg(desktop)]
             check_for_updates(app.handle().clone());
+            #[cfg(desktop)]
+            if spawned {
+                offer_service(app.handle().clone());
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

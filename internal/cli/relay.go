@@ -148,34 +148,8 @@ func relaySetup(e *env, args []string) error {
 		base = "https://" + base
 	}
 
-	payload, _ := json.Marshal(map[string]string{"name": name})
-	client := &http.Client{Timeout: 10 * time.Second}
-	res, err := client.Post(base+"/api/claim/start", "application/json", bytes.NewReader(payload))
+	claim, err := startClaim(e.api, base, name, relayURL)
 	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusCreated {
-		return fmt.Errorf("claim start: %s answered %s", base, res.Status)
-	}
-	var claim struct {
-		Code       string `json:"code"`
-		Credential string `json:"credential"`
-		ExpiresIn  int    `json:"expiresIn"`
-		RelayURL   string `json:"relayUrl"`
-		Gated      bool   `json:"gated"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&claim); err != nil {
-		return fmt.Errorf("unexpected response: %w", err)
-	}
-	if relayURL == "" {
-		relayURL = claim.RelayURL
-	}
-	if relayURL == "" {
-		return fmt.Errorf("%s did not advertise a relay URL; pass -relay-url", base)
-	}
-
-	if _, err := e.api.do(http.MethodPost, "/api/relay", map[string]any{"url": relayURL, "key": claim.Credential, "gated": claim.Gated}); err != nil {
 		return err
 	}
 	fmt.Fprintf(e.out, `claim code: %s   (expires in %d minutes)
@@ -185,4 +159,44 @@ The tunnel dials now and shows "rejected" until the claim lands — after
 claiming, run "muxdeck relay on", then "muxdeck relay" to check state.
 `, claim.Code, claim.ExpiresIn/60, base)
 	return nil
+}
+
+// claim is what the control plane hands back for a new daemon: the code
+// the human types on the account page and the credential the daemon dials
+// with meanwhile.
+type claim struct {
+	Code       string `json:"code"`
+	Credential string `json:"credential"`
+	ExpiresIn  int    `json:"expiresIn"`
+	RelayURL   string `json:"relayUrl"`
+	Gated      bool   `json:"gated"`
+}
+
+// startClaim asks the control plane at base for a claim under name and
+// points the daemon behind api at the relay it advertises (or relayURL).
+func startClaim(api *client, base, name, relayURL string) (claim, error) {
+	var c claim
+	payload, _ := json.Marshal(map[string]string{"name": name})
+	hc := &http.Client{Timeout: 10 * time.Second}
+	res, err := hc.Post(base+"/api/claim/start", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return c, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		return c, fmt.Errorf("claim start: %s answered %s", base, res.Status)
+	}
+	if err := json.NewDecoder(res.Body).Decode(&c); err != nil {
+		return c, fmt.Errorf("unexpected response: %w", err)
+	}
+	if relayURL == "" {
+		relayURL = c.RelayURL
+	}
+	if relayURL == "" {
+		return c, fmt.Errorf("%s did not advertise a relay URL; pass -relay-url", base)
+	}
+	if _, err := api.do(http.MethodPost, "/api/relay", map[string]any{"url": relayURL, "key": c.Credential, "gated": c.Gated}); err != nil {
+		return c, err
+	}
+	return c, nil
 }

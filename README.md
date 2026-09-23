@@ -47,6 +47,17 @@ as a service (systemd/launchd, token-protected, starts at boot), or just put
 the binary on your PATH. Non-interactive use:
 `MUXDECK_MODE=service sh install.sh` (also `MUXDECK_BIN_DIR`, `MUXDECK_PORT`).
 
+Any muxdeck binary can also make itself the machine's always-on daemon:
+`muxdeck service install` writes a launchd agent (macOS) or a systemd user
+unit (Linux) that runs *this* binary on loopback, tokenless, and claims it
+with muxdeck cloud so the relay's gate does the authenticating — print the
+claim code, enter it on the account page, `muxdeck relay on`. `-addr`,
+`-service-token`, `-bin`, `-cloud` and `-no-claim` change the shape; `muxdeck
+service` reports it and `muxdeck service uninstall` removes it. The desktop
+app offers this on first launch when no daemon is running: saying yes points
+the service at the daemon inside the app bundle, so it follows app updates
+and the app attaches to it from then on instead of spawning its own.
+
 ## Build
 
 ```sh
