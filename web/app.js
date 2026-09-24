@@ -136,8 +136,14 @@ function osc52ToClipboard(data) {
 }
 
 function copySelection(term) {
-  if (term && term.hasSelection()) {
-    navigator.clipboard?.writeText(term.getSelection()).catch(() => {});
+  if (!term || !term.hasSelection()) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+  } else {
+    // Plain-http origins (a daemon reached by LAN IP) have no clipboard
+    // API. execCommand fires a copy event that xterm answers with its
+    // selection, and it is allowed inside the gesture that ends here.
+    try { document.execCommand("copy"); } catch {}
   }
 }
 
@@ -448,9 +454,63 @@ class Pane {
     } catch (e) {
       console.warn("muxdeck: WebGL unavailable, falling back to DOM renderer", e);
     }
+    // With tmux mouse mode on (the default for sessions muxdeck creates)
+    // xterm hands every button press to tmux, so a drag selects in tmux
+    // copy mode and the text only comes back as OSC 52 — which the page
+    // can't put on the clipboard on a plain-http origin. Keep the buttons
+    // with the browser instead: a plain drag selects locally, a plain
+    // click is replayed to tmux once it's known not to be a drag, and the
+    // modifier xterm uses to force a local selection (Shift; Option on
+    // macOS) now does the opposite and hands the gesture to tmux. Flipping
+    // that modifier on a re-dispatched copy of the event is the only way
+    // in from outside xterm; the copies sent while the modifier is held
+    // have it cleared, or tmux would see S-MouseDragEnd1Pane and never
+    // finish the selection.
+    const redispatched = new WeakSet();
+    const redispatch = (e, modifier) => {
+      const init = {
+        bubbles: true, cancelable: true, composed: true, view: window, detail: e.detail,
+        screenX: e.screenX, screenY: e.screenY, clientX: e.clientX, clientY: e.clientY,
+        ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey,
+        button: e.button, buttons: e.buttons, relatedTarget: e.relatedTarget,
+      };
+      if (isMac) init.altKey = modifier; else init.shiftKey = modifier;
+      const copy = new MouseEvent(e.type, init);
+      redispatched.add(copy);
+      e.stopPropagation();
+      e.preventDefault();
+      e.target.dispatchEvent(copy);
+    };
+    const untilRelease = (e) => {
+      if (redispatched.has(e)) return;
+      redispatch(e, false);
+      if (e.type === "mouseup") {
+        document.removeEventListener("mousemove", untilRelease, true);
+        document.removeEventListener("mouseup", untilRelease, true);
+      }
+    };
+    mount.addEventListener("mousedown", (e) => {
+      if (redispatched.has(e) || this.term.modes.mouseTrackingMode === "none") return;
+      const toTmux = isMac ? e.altKey : e.shiftKey;
+      this.pendingClick = e.button === 0 && !toTmux ? { x: e.clientX, y: e.clientY } : null;
+      if (toTmux) {
+        document.addEventListener("mousemove", untilRelease, true);
+        document.addEventListener("mouseup", untilRelease, true);
+      }
+      this.term.focus();
+      redispatch(e, !toTmux);
+    }, true);
     // Clipboard writes need transient activation, so copy at gesture end
     // rather than on every selection change.
-    mount.addEventListener("mouseup", () => copySelection(this.term));
+    mount.addEventListener("mouseup", (e) => {
+      const click = this.pendingClick;
+      this.pendingClick = null;
+      copySelection(this.term);
+      if (click && e.button === 0 && !this.term.hasSelection() &&
+          Math.hypot(e.clientX - click.x, e.clientY - click.y) <= 3) {
+        this.replayClick(e);
+      }
+    });
     mount.addEventListener("touchend", () => copySelection(this.term));
     this.fit.fit();
     this.term.focus();
@@ -625,6 +685,18 @@ class Pane {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.fit) return;
     this.fit.fit();
     this.ws.send(JSON.stringify({ type: "resize", cols: this.term.cols, rows: this.term.rows }));
+  }
+
+  // A press the browser kept (see makeTerm) that turned out to be a plain
+  // click still means something to tmux — pane focus, status-bar windows —
+  // so encode it the way xterm would have. SGR is what tmux asks for, and
+  // the only peer on this socket is tmux.
+  replayClick(e) {
+    if (this.term.modes.mouseTrackingMode === "none") return;
+    const r = this.term.element.querySelector(".xterm-screen").getBoundingClientRect();
+    const col = Math.min(this.term.cols, Math.max(1, Math.ceil((e.clientX - r.left) / (r.width / this.term.cols))));
+    const row = Math.min(this.term.rows, Math.max(1, Math.ceil((e.clientY - r.top) / (r.height / this.term.rows))));
+    this.send(`\x1b[<0;${col};${row}M\x1b[<0;${col};${row}m`);
   }
 
   async refreshMouse() {
