@@ -105,13 +105,17 @@ when tmux mouse mode is on, so muxdeck enables `mouse on` for sessions it
 creates, and the per-pane `mouse` button toggles it per session (it's the
 real tmux option, so it affects terminal clients of that session too).
 
-**Copy/paste:** selecting text copies it to the clipboard on release (with
-mouse mode on, hold Shift — Option on macOS — to select in the browser
-instead of tmux). tmux copy-mode yanks reach the system clipboard too:
-muxdeck sets the server's `set-clipboard` option and the `Ms` terminfo
-override, and the frontend turns the resulting OSC 52 writes into browser
-clipboard writes. Paste with `⌘V`/`Ctrl+V`, or the `paste` key on touch
-devices. Clipboard access needs a secure context (HTTPS or localhost).
+**Copy/paste:** selecting text copies it to the clipboard on release,
+with mouse mode on or off — the browser keeps the mouse buttons, so a plain
+drag selects in the browser and a plain click still reaches tmux (pane
+focus, status-bar windows). Hold Shift — Option on macOS — while dragging
+to select in tmux copy mode instead. tmux copy-mode yanks reach the system
+clipboard too: muxdeck sets the server's `set-clipboard` option and the
+`Ms` terminfo override, and the frontend turns the resulting OSC 52 writes
+into browser clipboard writes. Paste with `⌘V`/`Ctrl+V`, or the `paste`
+key on touch devices. Copying a browser selection works on any origin;
+tmux yanks and the `paste` key go through the clipboard API, which needs a
+secure context (HTTPS or localhost).
 
 **Keyboard shortcuts:** `⌘K` (`Ctrl+Shift+K`) command palette,
 `⌘F` (`Ctrl+Shift+F`) find in scrollback. Plain Ctrl combos always go to
